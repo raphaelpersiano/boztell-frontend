@@ -1,4 +1,4 @@
-﻿'use client';
+'use client';
 
 import React, { useState, useEffect, useRef } from 'react';
 import { 
@@ -51,8 +51,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
   const [filePreview, setFilePreview] = useState<string | null>(null);
   const [mediaCaption, setMediaCaption] = useState('');
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
-  // Track optimistic messages that have been confirmed by API success
-  const [confirmedOptimisticIds, setConfirmedOptimisticIds] = useState<Set<string>>(new Set());
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -62,90 +60,25 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
   const { messages, loading: messagesLoading } = useMessages(roomId);
   const { lead, loading: leadLoading } = useLead(roomLeadsId);
 
-  // SMART MERGE: Combine real and optimistic messages WITHOUT duplicates
-  // Real WhatsApp behavior: optimistic message updates to real, no flicker
-  const allMessages = React.useMemo(() => {
-    // Start with all real messages
-    const merged = [...messages];
-    
-    // Add optimistic messages that haven't been saved yet
-  optimisticMessages.forEach(optMsg => {
-      // Check if this optimistic message already exists in real messages
-      const existsInReal = messages.some(realMsg => {
-        // Match by content and timestamp (within 5 seconds)
-        if (optMsg.content_type === 'text' && realMsg.content_type === 'text') {
-          const contentMatch = realMsg.content_text?.trim() === optMsg.content_text?.trim();
-          const userMatch = realMsg.user_id === optMsg.user_id;
-          const timeDiff = Math.abs(
-            new Date(realMsg.created_at).getTime() - new Date(optMsg.created_at).getTime()
-          );
-          // Allow wider tolerance (60s) to be resilient to server time differences
-          return contentMatch && userMatch && timeDiff < 60000;
-        }
-        
-        // Match media by filename
-        if (optMsg.content_type === 'media' && realMsg.content_type === 'media') {
-          return realMsg.original_filename === optMsg.original_filename && 
-                 realMsg.user_id === optMsg.user_id;
-        }
-        
-        return false;
-      });
-      
-      // Only add if NOT in real messages yet
-      if (!existsInReal) {
-        merged.push(optMsg);
-      }
-    });
-    
-    // Sort by timestamp
-    return merged.sort((a, b) => 
-      new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
-    );
-  }, [messages, optimisticMessages]);
+  // Combine real messages with optimistic messages
+  const allMessages = [...messages, ...optimisticMessages];
 
-  // Auto-cleanup: Remove optimistic messages that are now in real messages
+  // SIMPLE CLEANUP: Just clear optimistic messages when new real messages arrive
   useEffect(() => {
-    if (optimisticMessages.length === 0 || messages.length === 0) return;
+    if (messages.length === 0) return;
     
-    const toRemove: string[] = [];
-    
-    optimisticMessages.forEach(optMsg => {
-      const foundInReal = messages.some(realMsg => {
-        // Same matching logic as above
-        if (optMsg.content_type === 'text' && realMsg.content_type === 'text') {
-          const contentMatch = realMsg.content_text?.trim() === optMsg.content_text?.trim();
-          const userMatch = realMsg.user_id === optMsg.user_id;
-          const timeDiff = Math.abs(
-            new Date(realMsg.created_at).getTime() - new Date(optMsg.created_at).getTime()
-          );
-          // Allow wider tolerance (60s) to be resilient to server time differences
-          return contentMatch && userMatch && timeDiff < 60000;
-        }
-        
-        if (optMsg.content_type === 'media' && realMsg.content_type === 'media') {
-          return realMsg.original_filename === optMsg.original_filename && 
-                 realMsg.user_id === optMsg.user_id;
-        }
-        
-        return false;
-      });
+    // Simple strategy: Remove ALL optimistic messages when real messages arrive
+    // This will force a full refresh of the chat window
+    if (optimisticMessages.length > 0) {
+      console.log('� Refreshing chat - clearing', optimisticMessages.length, 'optimistic messages');
+      setOptimisticMessages([]);
       
-      if (foundInReal) {
-        toRemove.push(optMsg.id);
-      }
-    });
-    
-    if (toRemove.length > 0) {
-      setOptimisticMessages(prev => prev.filter(msg => !toRemove.includes(msg.id)));
-      // Also clear confirmed flags for removed optimistic messages to avoid memory growth
-      setConfirmedOptimisticIds(prev => {
-        const next = new Set(prev);
-        toRemove.forEach(id => next.delete(id));
-        return next;
-      });
+      // Force scroll to bottom after refresh
+      setTimeout(() => {
+        messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+      }, 100);
     }
-  }, [messages, optimisticMessages]);
+  }, [messages.length]); // Trigger on messages count change
 
   // Fetch room data to get phone number and leads_id
   useEffect(() => {
@@ -157,7 +90,9 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
           .eq('id', roomId)
           .single();
         
-  const roomData = data as { phone: string | null; leads_id: string | null } | null;
+        const roomData = data as { phone: string | null; leads_id: string | null } | null;
+        
+        // Set leads_id for useLead hook
         if (roomData?.leads_id) {
           setRoomLeadsId(roomData.leads_id);
         }
@@ -189,10 +124,10 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
     }
   }, [roomId]);
   
-  // Auto-scroll to bottom when messages change
+  // Auto-scroll to bottom on new messages OR when optimistic messages change
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [allMessages.length]); // Scroll when message count changes
+  }, [messages, optimisticMessages]); // Scroll when EITHER changes
 
   // Mark room as read when opened (optional, non-blocking)
   useEffect(() => {
@@ -252,8 +187,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
         text: messageText,        // Message text
         user_id: userId,          // Agent ID
       });
-      // Mark this optimistic bubble as confirmed (turn dark blue immediately)
-      setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
       
       // Don't remove optimistic message here!
       // It will stay until real message arrives from Supabase realtime
@@ -357,8 +290,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
         caption: mediaCaption || undefined,
         user_id: userId,
       });
-      // Turn optimistic media bubble dark immediately
-      setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
 
       // Clear file selection state
       setSelectedFile(null);
@@ -447,8 +378,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
       });
 
       setShowContactModal(false);
-  // Turn optimistic contact bubble dark immediately
-  setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
       
       // Don't remove optimistic message - it will be replaced by real message from Supabase
     } catch (error: any) {
@@ -522,8 +451,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
       });
 
       setShowLocationModal(false);
-  // Turn optimistic location bubble dark immediately
-  setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
       
       // Don't remove optimistic message - it will be replaced by real message from Supabase
     } catch (error: any) {
@@ -568,7 +495,6 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
   const renderMessage = (message: Message, index: number) => {
     const isFromCustomer = !message.user_id;
     const isOptimistic = message.id.startsWith('temp-');
-    const isConfirmedOptimistic = isOptimistic && confirmedOptimisticIds.has(message.id);
     const showDate = index === 0 || 
       new Date(message.created_at).toDateString() !== 
       new Date(allMessages[index - 1].created_at).toDateString();
@@ -595,7 +521,7 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
             className={`max-w-xs lg:max-w-md px-4 py-2 rounded-lg transition-all duration-300 ${
               isFromCustomer
                 ? 'bg-white text-gray-900'
-                : isOptimistic && !isConfirmedOptimistic
+                : isOptimistic
                 ? 'bg-blue-400 text-white opacity-70 scale-95'  // Slightly smaller + translucent
                 : 'bg-blue-500 text-white opacity-100 scale-100' // Full size + opaque
             }`}
@@ -657,8 +583,8 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
                 })}
               </span>
               {!isFromCustomer && (
-                <span className={`text-xs ${message.status === 'read' ? 'text-blue-2 00' : 'text-blue-100'}`}>
-                  {isOptimistic ? (isConfirmedOptimistic ? getMessageStatusIcon('sent') : '🕐') : getMessageStatusIcon(message.status)}
+                <span className={`text-xs ${message.status === 'read' ? 'text-blue-200' : 'text-blue-100'}`}>
+                  {isOptimistic ? '🕐' : getMessageStatusIcon(message.status)}
                 </span>
               )}
             </div>
@@ -1181,4 +1107,3 @@ const LocationModal: React.FC<LocationModalProps> = ({ onClose, onSend, sending 
     </div>
   );
 };
-

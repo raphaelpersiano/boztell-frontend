@@ -38,6 +38,21 @@ export const formatDate = (date: Date): string => {
 
 export const formatRelativeTime = (date: Date | string): string => {
   const dateObj = typeof date === 'string' ? new Date(date) : date;
+  
+  // To avoid hydration mismatch, we need to handle this on client-side only
+  // Return ISO string on server, format on client
+  if (typeof window === 'undefined') {
+    // Server-side: return formatted date string (consistent)
+    return new Intl.DateTimeFormat('id-ID', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+    }).format(dateObj);
+  }
+  
+  // Client-side: calculate relative time
   const now = new Date();
   const diff = now.getTime() - dateObj.getTime();
   const minutes = Math.floor(diff / (1000 * 60));

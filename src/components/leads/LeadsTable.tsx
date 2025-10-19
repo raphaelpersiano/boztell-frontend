@@ -1,3 +1,5 @@
+'use client';
+
 import React from 'react';
 import { Search, Filter, Plus, MoreVertical, Phone, MessageSquare, Edit, Trash2 } from 'lucide-react';
 import { Button } from '../ui/Button';
@@ -26,6 +28,12 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
+  const [mounted, setMounted] = React.useState(false);
+
+  // Prevent hydration mismatch for time-based content
+  React.useEffect(() => {
+    setMounted(true);
+  }, []);
 
   const filteredLeads = leads.filter(lead => {
     const name = lead.name || '';
@@ -201,7 +209,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatRelativeTime(lead.updated_at)}
+                    {mounted ? formatRelativeTime(lead.updated_at) : new Date(lead.updated_at).toLocaleDateString('id-ID')}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">

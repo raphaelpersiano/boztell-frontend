@@ -5,6 +5,7 @@ import { Layout } from '@/components/Layout';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
 import { ChatWindowWithRealtime } from '@/components/chat/ChatWindowWithRealtime';
 import { LeadManagementPopup } from '@/components/chat/LeadManagementPopup';
+import { NewChatModal } from '@/components/chat/NewChatModal';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { useAuth } from '@/context/AuthContext';
 import { useRooms } from '@/hooks/useSupabaseRealtime';
@@ -13,6 +14,7 @@ export default function ChatPage() {
   const { user } = useAuth();
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
   const [showLeadPopup, setShowLeadPopup] = React.useState(false);
+  const [showNewChatModal, setShowNewChatModal] = React.useState(false);
 
   // Fetch rooms with Supabase Realtime
   const { rooms, loading: loadingRooms } = useRooms(
@@ -34,6 +36,15 @@ export default function ChatPage() {
     // Could trigger refetch here if needed
   };
 
+  const handleNewChatSuccess = (roomId: string) => {
+    setShowNewChatModal(false);
+    // Room list will refresh automatically via realtime subscription
+    // Optionally select the new room
+    if (roomId) {
+      setSelectedRoomId(roomId);
+    }
+  };
+
   return (
     <ProtectedRoute>
       <Layout>
@@ -44,6 +55,7 @@ export default function ChatPage() {
             onRoomSelect={setSelectedRoomId}
             userId={user?.id || ''}
             userRole={user?.role || 'agent'}
+            onNewChat={() => setShowNewChatModal(true)}
           />
 
           {/* Chat window with realtime messages - full width when popup closed */}
@@ -73,6 +85,14 @@ export default function ChatPage() {
               onSave={handleSaveLeadPopup}
             />
           )}
+
+          {/* New Chat Modal */}
+          <NewChatModal
+            isOpen={showNewChatModal}
+            onClose={() => setShowNewChatModal(false)}
+            onSuccess={handleNewChatSuccess}
+            userId={user?.id || ''}
+          />
         </div>
       </Layout>
     </ProtectedRoute>

@@ -1,7 +1,7 @@
 'use client';
 
 import React from 'react';
-import { Search, MoreVertical, Archive, Users } from 'lucide-react';
+import { Search, MoreVertical, Archive, Users, MessageSquarePlus } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { formatRelativeTime } from '@/lib/utils';
@@ -13,13 +13,15 @@ interface ChatSidebarProps {
   onRoomSelect: (roomId: string) => void;
   userId: string;
   userRole: 'admin' | 'supervisor' | 'agent';
+  onNewChat?: () => void;
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   selectedRoomId,
   onRoomSelect,
   userId,
-  userRole
+  userRole,
+  onNewChat
 }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'all' | 'unassigned' | 'assigned'>('all');
@@ -99,6 +101,16 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             {userRole === 'agent' ? 'My Chats' : 'Main Inbox'}
           </h2>
           <div className="flex items-center space-x-2">
+            {onNewChat && (
+              <Button 
+                variant="ghost" 
+                size="sm"
+                onClick={onNewChat}
+                title="New Chat"
+              >
+                <MessageSquarePlus className="h-4 w-4" />
+              </Button>
+            )}
             <Button variant="ghost" size="sm">
               <Archive className="h-4 w-4" />
             </Button>
