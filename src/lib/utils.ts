@@ -36,9 +36,10 @@ export const formatDate = (date: Date): string => {
   }).format(date);
 };
 
-export const formatRelativeTime = (date: Date): string => {
+export const formatRelativeTime = (date: Date | string): string => {
+  const dateObj = typeof date === 'string' ? new Date(date) : date;
   const now = new Date();
-  const diff = now.getTime() - date.getTime();
+  const diff = now.getTime() - dateObj.getTime();
   const minutes = Math.floor(diff / (1000 * 60));
   const hours = Math.floor(diff / (1000 * 60 * 60));
   const days = Math.floor(diff / (1000 * 60 * 60 * 24));
@@ -48,7 +49,7 @@ export const formatRelativeTime = (date: Date): string => {
   if (hours < 24) return `${hours} jam yang lalu`;
   if (days < 7) return `${days} hari yang lalu`;
   
-  return formatDate(date);
+  return formatDate(dateObj);
 };
 
 export const getStatusColor = (status: string): string => {

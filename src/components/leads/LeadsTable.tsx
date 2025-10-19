@@ -28,11 +28,15 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
   const [statusFilter, setStatusFilter] = React.useState<string>('all');
 
   const filteredLeads = leads.filter(lead => {
-    const matchesSearch = lead.namaLengkap.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         lead.nomorTelpon.includes(searchQuery) ||
-                         lead.jenisUtang.toLowerCase().includes(searchQuery.toLowerCase());
+    const name = lead.name || '';
+    const phone = lead.phone || '';
+    const loanType = lead.loan_type || '';
     
-    const matchesStatus = statusFilter === 'all' || lead.status === statusFilter;
+    const matchesSearch = name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         phone.includes(searchQuery) ||
+                         loanType.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const matchesStatus = statusFilter === 'all' || lead.leads_status === statusFilter;
     
     return matchesSearch && matchesStatus;
   });
@@ -95,7 +99,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
         <Card>
           <div className="text-center">
             <p className="text-2xl font-bold text-blue-600">
-              {leads.filter(l => ['warm', 'hot'].includes(l.status)).length}
+              {leads.filter(l => l.leads_status && ['warm', 'hot'].includes(l.leads_status)).length}
             </p>
             <p className="text-sm text-gray-500">Active Leads</p>
           </div>
@@ -103,7 +107,7 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
         <Card>
           <div className="text-center">
             <p className="text-2xl font-bold text-green-600">
-              {leads.filter(l => l.status === 'paid').length}
+              {leads.filter(l => l.leads_status === 'paid').length}
             </p>
             <p className="text-sm text-gray-500">Converted</p>
           </div>
@@ -113,11 +117,11 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
             <p className="text-2xl font-bold text-gray-900">
               {formatCurrency(
                 leads
-                  .filter(l => l.status === 'paid')
-                  .reduce((sum, l) => sum + l.nominalPinjaman, 0)
+                  .filter(l => l.leads_status === 'paid')
+                  .reduce((sum, l) => sum + (l.outstanding || 0), 0)
               )}
             </p>
-            <p className="text-sm text-gray-500">Total Revenue</p>
+            <p className="text-sm text-gray-500">Total Outstanding</p>
           </div>
         </Card>
       </div>
@@ -160,12 +164,12 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="text-sm font-medium text-gray-900 cursor-pointer hover:text-blue-600"
                          onClick={() => onLeadClick(lead)}>
-                      {lead.namaLengkap}
+                      {lead.name || 'N/A'}
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
                     <div className="flex items-center space-x-2">
-                      <span className="text-sm text-gray-900">{lead.nomorTelpon}</span>
+                      <span className="text-sm text-gray-900">{lead.phone || 'N/A'}</span>
                       <Button variant="ghost" size="sm">
                         <Phone className="h-3 w-3" />
                       </Button>
@@ -175,29 +179,29 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {formatCurrency(lead.nominalPinjaman)}
+                    {formatCurrency(lead.outstanding || 0)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {lead.jenisUtang}
+                    {lead.loan_type || 'N/A'}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <Badge className={getStatusColor(lead.status)}>
-                      {lead.status}
+                    <Badge className={getStatusColor(lead.leads_status || 'cold')}>
+                      {lead.leads_status || 'N/A'}
                     </Badge>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
-                    {lead.assignedTo ? (
+                    {lead.contact_status ? (
                       <Badge variant="success" size="sm">
-                        {lead.assignedTo}
+                        {lead.contact_status}
                       </Badge>
                     ) : (
                       <Badge variant="warning" size="sm">
-                        Unassigned
+                        Not Contacted
                       </Badge>
                     )}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                    {formatRelativeTime(lead.updatedAt)}
+                    {formatRelativeTime(lead.updated_at)}
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                     <div className="flex items-center justify-end space-x-2">

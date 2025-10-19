@@ -1,0 +1,237 @@
+[
+  {
+    "table_name": "leads",
+    "column_name": "id",
+    "data_type": "uuid"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "utm_id",
+    "data_type": "uuid"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "leads_status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "contact_status",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "name",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "phone",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "outstanding",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "loan_type",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "leads",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "id",
+    "data_type": "integer"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "message_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "status",
+    "data_type": "text"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "timestamp",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "recipient_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "metadata",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "message_status_history",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "room_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "content_type",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "content_text",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "media_type",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "media_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "gcs_filename",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "gcs_url",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "file_size",
+    "data_type": "bigint"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "mime_type",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "original_filename",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "wa_message_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "status",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "status_timestamp",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "metadata",
+    "data_type": "jsonb"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "reply_to_wa_message_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "reaction_emoji",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "reaction_to_wa_message_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "messages",
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "table_name": "room_participants",
+    "column_name": "room_id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "room_participants",
+    "column_name": "user_id",
+    "data_type": "uuid"
+  },
+  {
+    "table_name": "room_participants",
+    "column_name": "joined_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "id",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "title",
+    "data_type": "text"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "created_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "updated_at",
+    "data_type": "timestamp with time zone"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "phone",
+    "data_type": "character varying"
+  },
+  {
+    "table_name": "rooms",
+    "column_name": "leads_id",
+    "data_type": "uuid"
+  }
+]

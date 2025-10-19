@@ -1,47 +1,94 @@
+'use client';
+
 import React from 'react';
 import { Search, MoreVertical, Archive, Users } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { formatRelativeTime } from '@/lib/utils';
-
-interface ChatRoom {
-  id: string;
-  customerName: string;
-  customerPhone: string;
-  lastMessage: string;
-  lastMessageTime: Date;
-  unreadCount: number;
-  isAssigned: boolean;
-  assignedAgent?: string;
-  status: string;
-}
+import { useRooms } from '@/hooks/useSupabaseRealtime';
+import type { Room } from '@/types';
 
 interface ChatSidebarProps {
-  rooms: ChatRoom[];
   selectedRoomId?: string;
   onRoomSelect: (roomId: string) => void;
+  userId: string;
   userRole: 'admin' | 'supervisor' | 'agent';
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = ({
-  rooms,
   selectedRoomId,
   onRoomSelect,
+  userId,
   userRole
 }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'all' | 'unassigned' | 'assigned'>('all');
 
+  // 🔥 USE REALTIME HOOK
+  const { rooms, loading, error } = useRooms(userId, userRole);
+
+  // Filter rooms based on search and tab
   const filteredRooms = rooms.filter(room => {
-    const matchesSearch = room.customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         room.customerPhone.includes(searchQuery);
+    const customerName = room.lead?.name || room.title || 'Unknown';
+    const customerPhone = room.phone || '';
+    
+    const matchesSearch = customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                         customerPhone.includes(searchQuery);
+    
+    // Check if room has lead (simplified - you may want to check participants)
+    const isAssigned = !!room.leads_id;
     
     if (activeTab === 'all') return matchesSearch;
-    if (activeTab === 'unassigned') return matchesSearch && !room.isAssigned;
-    if (activeTab === 'assigned') return matchesSearch && room.isAssigned;
+    if (activeTab === 'unassigned') return matchesSearch && !isAssigned;
+    if (activeTab === 'assigned') return matchesSearch && isAssigned;
     
     return matchesSearch;
   });
+
+  const formatLastMessage = (room: Room): string => {
+    if (!room.last_message) return 'No messages yet';
+    
+    const msg = room.last_message;
+    
+    // If it's a media message
+    if (msg.media_type) {
+      switch (msg.media_type) {
+        case 'image': return '📷 Photo';
+        case 'video': return '🎥 Video';
+        case 'audio': return '🎵 Audio';
+        case 'document': return '📄 Document';
+        default: return '📎 Media';
+      }
+    }
+    
+    // If it's a reaction
+    if (msg.reaction_emoji) {
+      return `Reacted ${msg.reaction_emoji}`;
+    }
+    
+    // Text message
+    return msg.content_text || 'Message';
+  };
+
+  const getMessageStatusIcon = (status: string | null | undefined): string => {
+    switch (status) {
+      case 'sent': return '✓';
+      case 'delivered': return '✓✓';
+      case 'read': return '✓✓';
+      default: return '';
+    }
+  };
+
+  if (error) {
+    return (
+      <div className="w-80 bg-white border-r border-gray-200 flex items-center justify-center h-full">
+        <div className="text-center p-4">
+          <p className="text-red-500 mb-2">Error loading chats</p>
+          <p className="text-sm text-gray-500">{error.message}</p>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="w-80 bg-white border-r border-gray-200 flex flex-col h-full">
@@ -112,66 +159,76 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
-        {filteredRooms.map((room) => (
-          <div
-            key={room.id}
-            onClick={() => onRoomSelect(room.id)}
-            className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-              selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
-            }`}
-          >
-            <div className="flex items-start space-x-3">
-              {/* Avatar */}
-              <div className="flex-shrink-0">
-                <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
-                  <Users className="h-6 w-6 text-gray-600" />
-                </div>
-              </div>
-
-              <div className="flex-1 min-w-0">
-                <div className="flex items-center justify-between">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {room.customerName}
-                  </p>
-                  <p className="text-xs text-gray-500">
-                    {formatRelativeTime(room.lastMessageTime)}
-                  </p>
-                </div>
-                
-                <p className="text-xs text-gray-500 mb-1">{room.customerPhone}</p>
-                
-                <div className="flex items-center justify-between">
-                  <p className="text-sm text-gray-600 truncate">{room.lastMessage}</p>
-                  <div className="flex items-center space-x-1">
-                    {room.unreadCount > 0 && (
-                      <Badge variant="info" size="sm">
-                        {room.unreadCount}
-                      </Badge>
-                    )}
+        {filteredRooms.map((room) => {
+          const customerName = room.lead?.name || room.title || 'Unknown';
+          const customerPhone = room.phone || '';
+          const lastMessageText = formatLastMessage(room);
+          const lastMessageTime = room.last_message?.created_at || room.updated_at;
+          const unreadCount = room.unread_count || 0;
+          const isAssigned = !!room.leads_id; // Has lead = assigned
+          const leadStatus = room.lead?.leads_status || 'cold';
+          
+          return (
+            <div
+              key={room.id}
+              onClick={() => onRoomSelect(room.id)}
+              className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+              }`}
+            >
+              <div className="flex items-start space-x-3">
+                {/* Avatar */}
+                <div className="flex-shrink-0">
+                  <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
+                    <Users className="h-6 w-6 text-gray-600" />
                   </div>
                 </div>
 
-                {/* Assignment info */}
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center space-x-2">
-                    {room.isAssigned ? (
-                      <Badge variant="success" size="sm">
-                        Assigned to {room.assignedAgent}
-                      </Badge>
-                    ) : (
-                      <Badge variant="warning" size="sm">
-                        Unassigned
-                      </Badge>
-                    )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {customerName}
+                    </p>
+                    <p className="text-xs text-gray-500">
+                      {formatRelativeTime(lastMessageTime)}
+                    </p>
                   </div>
-                  <Badge variant="default" size="sm">
-                    {room.status}
-                  </Badge>
+                  
+                  <p className="text-xs text-gray-500 mb-1">{customerPhone}</p>
+                  
+                  <div className="flex items-center justify-between">
+                    <p className="text-sm text-gray-600 truncate">{lastMessageText}</p>
+                    <div className="flex items-center space-x-1">
+                      {unreadCount > 0 && (
+                        <Badge variant="info" size="sm">
+                          {unreadCount}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Assignment info */}
+                  <div className="flex items-center justify-between mt-2">
+                    <div className="flex items-center space-x-2">
+                      {isAssigned ? (
+                        <Badge variant="success" size="sm">
+                          Assigned
+                        </Badge>
+                      ) : (
+                        <Badge variant="warning" size="sm">
+                          Unassigned
+                        </Badge>
+                      )}
+                    </div>
+                    <Badge variant="default" size="sm">
+                      {leadStatus}
+                    </Badge>
+                  </div>
                 </div>
               </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
         
         {filteredRooms.length === 0 && (
           <div className="p-8 text-center text-gray-500">

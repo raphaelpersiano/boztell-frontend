@@ -116,4 +116,264 @@ export class ApiService {
       return { status: 0, ok: false, error };
     }
   }
+
+  // ==================== CHAT & MESSAGING API ====================
+  // Based on: MESSAGES_API_DOCUMENTATION.md
+
+  /**
+   * Send a text message
+   * Endpoint: POST /messages/send
+   */
+  static async sendMessage(data: {
+    to: string;              // Phone number (e.g., "6287879565390")
+    text: string;            // Message text
+    type?: 'text';           // Always 'text'
+    user_id?: string;        // UUID of agent sending (null = from customer)
+    replyTo?: string;        // Optional: WhatsApp message ID to reply to
+  }): Promise<any> {
+    return this.request('/messages/send', {
+      method: 'POST',
+      body: JSON.stringify({
+        ...data,
+        type: 'text', // Ensure type is always set
+      }),
+    });
+  }
+
+  /**
+   * Send template message
+   * Endpoint: POST /messages/send-template
+   */
+  static async sendTemplate(data: {
+    to: string;              // Phone number
+    templateName: string;    // Template name (e.g., "hello_world")
+    languageCode: string;    // Language code (e.g., "en_US")
+    parameters?: string[];   // Optional: Template parameters
+    user_id?: string;        // UUID of agent sending
+  }): Promise<any> {
+    return this.request('/messages/send-template', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Send contacts
+   * Endpoint: POST /messages/send-contacts
+   */
+  static async sendContacts(data: {
+    to: string;
+    contacts: Array<{
+      name: { first_name: string; last_name?: string };
+      phones?: Array<{ phone: string; type?: string }>;
+      emails?: Array<{ email: string; type?: string }>;
+    }>;
+    user_id?: string;
+    replyTo?: string;
+  }): Promise<any> {
+    return this.request('/messages/send-contacts', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Send location
+   * Endpoint: POST /messages/send-location
+   */
+  static async sendLocation(data: {
+    to: string;
+    location: {
+      latitude: number;
+      longitude: number;
+      name?: string;
+      address?: string;
+    };
+    user_id?: string;
+    replyTo?: string;
+  }): Promise<any> {
+    return this.request('/messages/send-location', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Send reaction emoji to a message
+   * Endpoint: POST /messages/send-reaction
+   */
+  static async sendReaction(data: {
+    to: string;              // Phone number
+    message_id: string;      // WhatsApp message ID to react to
+    emoji: string;           // Emoji (e.g., "👍")
+    user_id?: string;        // UUID of agent sending
+  }): Promise<any> {
+    return this.request('/messages/send-reaction', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Upload and send media (combined: upload + send in one request)
+   * Endpoint: POST /messages/send-media-combined
+   * 
+   * Supported media types:
+   * - Image: image/jpeg, image/png, image/webp
+   * - Video: video/mp4, video/3gpp
+   * - Audio: audio/aac, audio/mp4, audio/mpeg, audio/amr, audio/ogg
+   * - Document: application/pdf, application/msword, etc.
+   */
+  static async sendMediaCombined(data: {
+    media: File;             // File object to upload
+    to: string;              // Phone number
+    caption?: string;        // Optional caption
+    user_id?: string;        // UUID of agent sending
+  }): Promise<any> {
+    const formData = new FormData();
+    formData.append('media', data.media);
+    formData.append('to', data.to);
+    if (data.caption) formData.append('caption', data.caption);
+    if (data.user_id) formData.append('user_id', data.user_id);
+
+    return fetch(`${this.baseUrl}/messages/send-media-combined`, {
+      method: 'POST',
+      body: formData,
+      // Don't set Content-Type, let browser set it with boundary
+    }).then(res => res.json());
+  }
+
+  /**
+   * Get available message templates
+   * Endpoint: GET /messages/templates
+   */
+  static async getTemplates(): Promise<any> {
+    return this.request('/messages/templates', {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Verify message in database
+   * Endpoint: GET /messages/verify/{messageId}
+   */
+  static async verifyMessage(messageId: string): Promise<any> {
+    return this.request(`/messages/verify/${messageId}`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Mark all messages in a room as read (NOT IN BACKEND DOCS)
+   * This is a frontend-only helper that may need backend implementation
+   */
+  static async markRoomAsRead(roomId: string): Promise<any> {
+    console.warn('markRoomAsRead: This endpoint is not documented in backend API');
+    // For now, just resolve without error to avoid blocking UI
+    return Promise.resolve({ success: true, message: 'Not implemented in backend' });
+  }
+
+  // ==================== ROOM API ====================
+
+  /**
+   * Update room information (title, etc.)
+   */
+  static async updateRoom(roomId: string, data: {
+    title?: string;
+    leads_id?: string;
+  }): Promise<any> {
+    return this.request(`/api/rooms/${roomId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Create a new room
+   */
+  static async createRoom(data: {
+    phone: string;
+    title?: string;
+    leads_id?: string;
+  }): Promise<any> {
+    return this.request('/api/rooms', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Assign agent to room
+   */
+  static async assignAgentToRoom(roomId: string, userId: string): Promise<any> {
+    return this.request(`/api/rooms/${roomId}/assign`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  /**
+   * Remove agent from room
+   */
+  static async removeAgentFromRoom(roomId: string, userId: string): Promise<any> {
+    return this.request(`/api/rooms/${roomId}/unassign`, {
+      method: 'POST',
+      body: JSON.stringify({ user_id: userId }),
+    });
+  }
+
+  // ==================== LEADS API ====================
+
+  /**
+   * Create a new lead
+   */
+  static async createLead(data: {
+    name: string;
+    phone: string;
+    outstanding?: number;
+    loan_type?: string;
+    leads_status?: string;
+    contact_status?: string;
+    utm_id?: string;
+  }): Promise<any> {
+    return this.request('/api/leads', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Update existing lead
+   */
+  static async updateLead(leadId: string, data: {
+    name?: string;
+    phone?: string;
+    outstanding?: number;
+    loan_type?: string;
+    leads_status?: string;
+    contact_status?: string;
+  }): Promise<any> {
+    return this.request(`/api/leads/${leadId}`, {
+      method: 'PATCH',
+      body: JSON.stringify(data),
+    });
+  }
+
+  /**
+   * Get lead by ID
+   */
+  static async getLead(leadId: string): Promise<any> {
+    return this.request(`/api/leads/${leadId}`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Search leads by phone number
+   */
+  static async searchLeadsByPhone(phone: string): Promise<any> {
+    return this.request(`/api/leads/search?phone=${encodeURIComponent(phone)}`, {
+      method: 'GET',
+    });
+  }
 }
