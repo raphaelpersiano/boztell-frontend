@@ -53,6 +53,8 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
   const [optimisticMessages, setOptimisticMessages] = useState<Message[]>([]);
   // Track optimistic messages that have been confirmed by API success
   const [confirmedOptimisticIds, setConfirmedOptimisticIds] = useState<Set<string>>(new Set());
+  // Map clientId -> optimistic message id for template flows
+  const templateClientMapRef = useRef<Record<string, string>>({});
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
@@ -103,6 +105,93 @@ export const ChatWindowWithRealtime: React.FC<ChatWindowWithRealtimeProps> = ({
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
   }, [messages, optimisticMessages]);
+
+  // Helper to create optimistic message object
+  const buildOptimisticMessage = (
+    id: string,
+    text: string,
+    extra?: Partial<Message>
+  ): Message => ({
+    id,
+    room_id: roomId,
+    content_type: 'text',
+    content_text: text,
+    media_type: null,
+    media_id: null,
+    gcs_filename: null,
+    gcs_url: null,
+    file_size: null,
+    mime_type: null,
+    original_filename: null,
+    wa_message_id: null,
+    status: 'sent',
+    status_timestamp: null,
+    metadata: { source: 'template', ...(extra?.metadata as any) },
+    reply_to_wa_message_id: null,
+    reaction_emoji: null,
+    reaction_to_wa_message_id: null,
+    user_id: userId,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+    ...extra,
+  });
+
+  // Listen to template send lifecycle events for optimistic UI
+  useEffect(() => {
+    const handleInit = (e: Event) => {
+      const detail = (e as CustomEvent).detail as {
+        clientId: string;
+        to: string;
+        templateName: string;
+        languageCode: string;
+        parameters?: string[];
+        user_id?: string;
+      };
+
+      // Only act if the phone matches current room
+      const phoneToSend = roomPhone || customerPhone;
+      if (!phoneToSend || detail.to !== phoneToSend) return;
+
+      const content = `🧩 Template: ${detail.templateName}\nLang: ${detail.languageCode}` +
+        (detail.parameters?.length ? `\nParams: ${detail.parameters.join(', ')}` : '');
+      const tempId = `temp-${detail.clientId}`;
+      templateClientMapRef.current[detail.clientId] = tempId;
+
+      const optimistic = buildOptimisticMessage(tempId, content);
+      setOptimisticMessages(prev => [...prev, optimistic]);
+    };
+
+    const handleConfirmed = (e: Event) => {
+      const { clientId, to } = (e as CustomEvent).detail as { clientId: string; to: string };
+      const phoneToSend = roomPhone || customerPhone;
+      if (!phoneToSend || to !== phoneToSend) return;
+      const tempId = templateClientMapRef.current[clientId];
+      if (tempId) {
+        setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
+      }
+    };
+
+    const handleFailed = (e: Event) => {
+      const { clientId, to } = (e as CustomEvent).detail as { clientId: string; to: string };
+      const phoneToSend = roomPhone || customerPhone;
+      if (!phoneToSend || to !== phoneToSend) return;
+      const tempId = templateClientMapRef.current[clientId];
+      if (tempId) {
+        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+        delete templateClientMapRef.current[clientId];
+      }
+    };
+
+    window.addEventListener('boztell:outgoing-template', handleInit as EventListener);
+    window.addEventListener('boztell:outgoing-template:confirmed', handleConfirmed as EventListener);
+    window.addEventListener('boztell:outgoing-template:failed', handleFailed as EventListener);
+
+    return () => {
+      window.removeEventListener('boztell:outgoing-template', handleInit as EventListener);
+      window.removeEventListener('boztell:outgoing-template:confirmed', handleConfirmed as EventListener);
+      window.removeEventListener('boztell:outgoing-template:failed', handleFailed as EventListener);
+    };
+  }, [roomPhone, customerPhone, userId, roomId]);
 
   // Auto-cleanup: Remove optimistic messages that are now in real messages
   useEffect(() => {

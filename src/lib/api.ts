@@ -151,10 +151,45 @@ export class ApiService {
     parameters?: string[];   // Optional: Template parameters
     user_id?: string;        // UUID of agent sending
   }): Promise<any> {
-    return this.request('/messages/send-template', {
-      method: 'POST',
-      body: JSON.stringify(data),
-    });
+    // Generate a client-side id to correlate optimistic bubbles
+    const clientId = `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+
+    // Notify UI that a template send is initiated (for optimistic UI)
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('boztell:outgoing-template', {
+          detail: { clientId, ...data },
+        })
+      );
+    }
+
+    try {
+      const res = await this.request('/messages/send-template', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+
+      // Confirm optimistic UI immediately on success
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('boztell:outgoing-template:confirmed', {
+            detail: { clientId, to: data.to },
+          })
+        );
+      }
+
+      return res;
+    } catch (error) {
+      // Notify failure so UI can rollback optimistic bubble
+      if (typeof window !== 'undefined') {
+        window.dispatchEvent(
+          new CustomEvent('boztell:outgoing-template:failed', {
+            detail: { clientId, to: data.to, error: (error as Error)?.message },
+          })
+        );
+      }
+      throw error;
+    }
   }
 
   /**
