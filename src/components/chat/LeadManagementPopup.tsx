@@ -13,6 +13,7 @@ interface LeadManagementPopupProps {
   isOpen: boolean;
   onClose: () => void;
   onSave: (data: { lead?: Lead; roomTitle?: string }) => void;
+  refreshing?: boolean;
 }
 
 export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
@@ -21,6 +22,7 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
   isOpen,
   onClose,
   onSave,
+  refreshing = false,
 }) => {
   const [mode, setMode] = useState<'view' | 'create' | 'edit' | 'search'>('view');
   const [loading, setLoading] = useState(false);
@@ -65,11 +67,16 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
     
     setLoading(true);
     try {
-      const results = await ApiService.searchLeadsByPhone(searchQuery);
-      setSearchResults(results.leads || []);
+      const result = await ApiService.getLeadsByPhone(searchQuery);
+      if (result.success) {
+        setSearchResults(result.data || []);
+      } else {
+        setSearchResults([]);
+      }
       setMode('search');
     } catch (error) {
       console.error('Search error:', error);
+      setSearchResults([]);
     } finally {
       setLoading(false);
     }
@@ -78,19 +85,29 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
   const handleCreateLead = async () => {
     setLoading(true);
     try {
-      const newLead = await ApiService.createLead(formData);
+      const result = await ApiService.createNewLead(formData);
       
-      // Link lead to room
-      await ApiService.updateRoom(roomId, {
-        leads_id: newLead.id,
-        title: roomTitle || formData.name,
-      });
+      if (result.success) {
+        // Link lead to room
+        const roomResult = await ApiService.updateRoom(roomId, {
+          leads_id: result.data.id,
+          title: roomTitle || formData.name,
+        });
 
-      onSave({ lead: newLead, roomTitle });
-      onClose();
+        if (roomResult.success) {
+          onSave({ lead: result.data, roomTitle });
+          onClose();
+          // Force refresh the room data after successful update
+          console.log('✅ Lead created and room updated successfully');
+        } else {
+          throw new Error(roomResult.message || 'Failed to link lead to room');
+        }
+      } else {
+        throw new Error(result.message || 'Create failed');
+      }
     } catch (error) {
       console.error('Create lead error:', error);
-      alert('Failed to create lead');
+      alert('Failed to create lead: ' + (error instanceof Error ? error.message : 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -101,18 +118,26 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
 
     setLoading(true);
     try {
-      const updatedLead = await ApiService.updateLead(room.leads_id, formData);
+      const result = await ApiService.updateExistingLead(room.leads_id, formData);
       
-      // Update room title if changed
-      if (roomTitle !== room.title) {
-        await ApiService.updateRoom(roomId, { title: roomTitle });
-      }
+      if (result.success) {
+        // Update room title if changed
+        if (roomTitle !== room.title) {
+          const roomResult = await ApiService.updateRoom(roomId, { title: roomTitle });
+          if (!roomResult.success) {
+            console.warn('Failed to update room title:', roomResult.message);
+          }
+        }
 
-      onSave({ lead: updatedLead, roomTitle });
-      onClose();
+        onSave({ lead: result.data, roomTitle });
+        onClose();
+        console.log('✅ Lead updated successfully');
+      } else {
+        throw new Error(result.message || 'Update failed');
+      }
     } catch (error) {
       console.error('Update lead error:', error);
-      alert('Failed to update lead');
+      alert('Failed to update lead: ' + (error instanceof Error ? error.message : 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -121,16 +146,20 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
   const handleLinkExistingLead = async (lead: Lead) => {
     setLoading(true);
     try {
-      await ApiService.updateRoom(roomId, {
+      const result = await ApiService.updateRoom(roomId, {
         leads_id: lead.id,
         title: roomTitle || lead.name || undefined,
       });
 
-      onSave({ lead, roomTitle: roomTitle || lead.name || undefined });
-      onClose();
+      if (result.success) {
+        onSave({ lead, roomTitle: roomTitle || lead.name || undefined });
+        onClose();
+      } else {
+        throw new Error(result.message || 'Failed to link lead');
+      }
     } catch (error) {
       console.error('Link lead error:', error);
-      alert('Failed to link lead');
+      alert('Failed to link lead: ' + (error instanceof Error ? error.message : 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -139,12 +168,16 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
   const handleUpdateRoomTitle = async () => {
     setLoading(true);
     try {
-      await ApiService.updateRoom(roomId, { title: roomTitle });
-      onSave({ roomTitle });
-      onClose();
+      const result = await ApiService.updateRoom(roomId, { title: roomTitle });
+      if (result.success) {
+        onSave({ roomTitle });
+        onClose();
+      } else {
+        throw new Error(result.message || 'Failed to update room title');
+      }
     } catch (error) {
       console.error('Update room title error:', error);
-      alert('Failed to update room title');
+      alert('Failed to update room title: ' + (error instanceof Error ? error.message : 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -157,12 +190,17 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
       <div className="bg-white h-full w-full flex flex-col">
         {/* Header */}
         <div className="p-4 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-gray-900">
-            {mode === 'view' && 'Lead Information'}
-            {mode === 'create' && 'Create New Lead'}
-            {mode === 'edit' && 'Edit Lead'}
-            {mode === 'search' && 'Search Existing Lead'}
-          </h2>
+          <div className="flex items-center space-x-2">
+            <h2 className="text-lg font-semibold text-gray-900">
+              {mode === 'view' && 'Lead Information'}
+              {mode === 'create' && 'Create New Lead'}
+              {mode === 'edit' && 'Edit Lead'}
+              {mode === 'search' && 'Search Existing Lead'}
+            </h2>
+            {refreshing && (
+              <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
+            )}
+          </div>
           <Button variant="ghost" size="sm" onClick={onClose}>
             <X className="h-5 w-5" />
           </Button>

@@ -3,7 +3,7 @@
 import React from 'react';
 import { Layout } from '@/components/Layout';
 import { ChatSidebar } from '@/components/chat/ChatSidebar';
-import { ChatWindowWithRealtime } from '@/components/chat/ChatWindowWithRealtime';
+import { ChatWindow } from '@/components/chat/ChatWindow';
 import { LeadManagementPopup } from '@/components/chat/LeadManagementPopup';
 import { NewChatModal } from '@/components/chat/NewChatModal';
 import { ProtectedRoute } from '@/components/ProtectedRoute';
@@ -15,9 +15,11 @@ export default function ChatPage() {
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
   const [showLeadPopup, setShowLeadPopup] = React.useState(false);
   const [showNewChatModal, setShowNewChatModal] = React.useState(false);
+  const [optimisticRoomUpdate, setOptimisticRoomUpdate] = React.useState<{[roomId: string]: any}>({});
+  const [refreshingRoom, setRefreshingRoom] = React.useState(false);
 
   // Fetch rooms with Supabase Realtime
-  const { rooms, loading: loadingRooms } = useRooms(
+  const { rooms, loading: loadingRooms, refetch: refetchRooms } = useRooms(
     user?.id || '',
     user?.role || 'agent'
   );
@@ -30,10 +32,40 @@ export default function ChatPage() {
   }, [rooms, selectedRoomId]);
 
   const selectedRoom = rooms.find(room => room.id === selectedRoomId);
+  
+  // Apply optimistic updates to selected room
+  const displayRoom = selectedRoom && optimisticRoomUpdate[selectedRoomId || ''] 
+    ? { ...selectedRoom, ...optimisticRoomUpdate[selectedRoomId || ''] }
+    : selectedRoom;
 
-  const handleSaveLeadPopup = () => {
+  const handleSaveLeadPopup = (updatedData?: { lead?: any; roomTitle?: string }) => {
     setShowLeadPopup(false);
-    // Could trigger refetch here if needed
+    
+    // If we have updated data, apply optimistic update and refresh
+    if (updatedData && selectedRoomId) {
+      console.log('Lead data updated, applying optimistic update...', updatedData);
+      
+      // Apply optimistic update immediately
+      setOptimisticRoomUpdate(prev => ({
+        ...prev,
+        [selectedRoomId]: {
+          ...(updatedData.roomTitle && { title: updatedData.roomTitle }),
+          ...(updatedData.lead && { lead: updatedData.lead, leads_id: updatedData.lead.id }),
+        }
+      }));
+      
+      // Force refresh rooms data to sync with database
+      setRefreshingRoom(true);
+      refetchRooms().then(() => {
+        // Clear optimistic update after real data is loaded
+        setOptimisticRoomUpdate(prev => {
+          const newState = { ...prev };
+          delete newState[selectedRoomId];
+          return newState;
+        });
+        setRefreshingRoom(false);
+      });
+    }
   };
 
   const handleNewChatSuccess = (roomId: string) => {
@@ -61,9 +93,10 @@ export default function ChatPage() {
           {/* Chat window with realtime messages - full width when popup closed */}
           <div className={`flex-1 transition-all duration-300 ${showLeadPopup ? 'mr-96' : ''}`}>
             {selectedRoomId ? (
-              <ChatWindowWithRealtime
+              <ChatWindow
                 roomId={selectedRoomId}
                 userId={user?.id || ''}
+                customerPhone={selectedRoom?.phone || undefined}
                 onShowLeadPopup={() => setShowLeadPopup(true)}
               />
             ) : (
@@ -79,10 +112,11 @@ export default function ChatPage() {
           {showLeadPopup && selectedRoomId && (
             <LeadManagementPopup
               roomId={selectedRoomId}
-              room={selectedRoom || null}
+              room={displayRoom || null}
               isOpen={showLeadPopup}
               onClose={() => setShowLeadPopup(false)}
               onSave={handleSaveLeadPopup}
+              refreshing={refreshingRoom}
             />
           )}
 

@@ -35,14 +35,16 @@ export class ApiService {
   ): Promise<T> {
     const url = `${this.baseUrl}${endpoint}`;
     
+    // Only add Content-Type for requests with body (POST, PUT, PATCH)
+    const headers: Record<string, string> = { ...options.headers as Record<string, string> };
+    if (options.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    
     const config: RequestInit = {
       mode: 'cors',
       credentials: 'omit',
-      headers: {
-        'Content-Type': 'application/json',
-        'Accept': 'application/json',
-        ...options.headers,
-      },
+      headers,
       ...options,
     };
 
@@ -70,7 +72,11 @@ export class ApiService {
 
       if (!response.ok) {
         console.error('❌ API Error Response:', data);
-        throw new Error(data.message || `HTTP ${response.status}: ${response.statusText}`);
+        console.error('❌ Response Status:', response.status);
+        console.error('❌ Response StatusText:', response.statusText);
+        console.error('❌ Full Response Data:', JSON.stringify(data, null, 2));
+        console.error('❌ Request Details:', { url, method: config.method, headers: config.headers, body: config.body });
+        throw new Error(data.error || data.message || `HTTP ${response.status}: ${response.statusText}`);
       }
 
       console.log('✅ API Request Success');
@@ -89,10 +95,26 @@ export class ApiService {
 
   // Authentication API
   static async login(identifier: string, pin: string): Promise<LoginResponse> {
-    return this.request<LoginResponse>('/api/auth/login', {
-      method: 'POST',
-      body: JSON.stringify({ identifier, pin }),
-    });
+    try {
+      console.log('🔐 Login API call:', { identifier, endpoint: '/auth/login' });
+      const response = await this.request<LoginResponse>('/auth/login', {
+        method: 'POST',
+        body: JSON.stringify({ identifier, pin }),
+      });
+      
+      console.log('🔐 Login API response:', {
+        success: response.success,
+        hasUser: !!response.user,
+        hasToken: !!response.token,
+        tokenLength: response.token?.length || 0,
+        userRole: response.user?.role
+      });
+      
+      return response;
+    } catch (error) {
+      console.error('💥 Login API error:', error);
+      throw error;
+    }
   }
 
   // Add more API methods here as needed
@@ -311,16 +333,27 @@ export class ApiService {
   // ==================== ROOM API ====================
 
   /**
-   * Update room information (title, etc.)
+   * Update room data (title, leads_id, etc.)
    */
   static async updateRoom(roomId: string, data: {
     title?: string;
     leads_id?: string;
   }): Promise<any> {
-    return this.request(`/api/rooms/${roomId}`, {
-      method: 'PATCH',
-      body: JSON.stringify(data),
-    });
+    try {
+      console.log('🔄 Updating room:', roomId, data);
+      const response = await this.request(`/rooms/${roomId}`, {
+        method: 'PATCH',
+        body: JSON.stringify(data),
+      });
+      console.log('✅ Room updated successfully:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Update room error:', error);
+      return { 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to update room'
+      };
+    }
   }
 
   /**
@@ -406,9 +439,254 @@ export class ApiService {
   /**
    * Search leads by phone number
    */
-  static async searchLeadsByPhone(phone: string): Promise<any> {
-    return this.request(`/api/leads/search?phone=${encodeURIComponent(phone)}`, {
+  /**
+   * Get leads by phone number (NEW ENDPOINT)
+   */
+  static async getLeadsByPhone(phone: string): Promise<any> {
+    // Clean phone number (remove non-digits as per API spec)
+    const cleanPhone = phone.replace(/\D/g, '');
+    return this.request(`/leads/phone/${cleanPhone}`, {
       method: 'GET',
     });
+  }
+
+  // ==================== LEADS API (NEW ENDPOINTS) ====================
+
+  /**
+   * Get all leads with filtering (role-based access)
+   * Admin/Supervisor: See all leads
+   * Agent: Should use getLeadsByUser instead
+   */
+  static async getAllLeads(filters: {
+    leads_status?: string;
+    contact_status?: string;
+    loan_type?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  } = {}): Promise<any> {
+    const queryParams = new URLSearchParams();
+    Object.entries(filters).forEach(([key, value]) => {
+      if (value !== undefined && value !== null) {
+        queryParams.append(key, value.toString());
+      }
+    });
+
+    return this.request(`/leads?${queryParams}`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Get leads by user ID (for agents)
+   * Note: This endpoint does NOT require authentication
+   */
+  static async getLeadsByUserId(userId: string): Promise<any> {
+    return this.request(`/leads/user/${userId}`, {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Create a new lead (updated endpoint)
+   */
+  static async createNewLead(data: {
+    name: string;
+    phone: string;
+    outstanding?: number;
+    loan_type: string;
+    leads_status?: string;
+    contact_status?: string;
+    utm_id?: string;
+  }): Promise<any> {
+    try {
+      console.log('🔄 Creating new lead:', data);
+      const response = await this.request('/leads', {
+        method: 'POST',
+        body: JSON.stringify(data),
+      });
+      console.log('✅ Lead created successfully:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Create lead error:', error);
+      return { 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to create lead'
+      };
+    }
+  }
+
+  /**
+   * Update existing lead (updated endpoint)
+   */
+  static async updateExistingLead(leadId: string, data: {
+    name?: string;
+    phone?: string;
+    outstanding?: number;
+    loan_type?: string;
+    leads_status?: string;
+    contact_status?: string;
+    utm_id?: string;
+  }): Promise<any> {
+    try {
+      console.log('🔄 Updating lead:', leadId, data);
+      const response = await this.request(`/leads/${leadId}`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+      });
+      console.log('✅ Lead updated successfully:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Update lead error:', error);
+      return { 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to update lead'
+      };
+    }
+  }
+
+  /**
+   * Update lead status only
+   */
+  static async updateLeadStatusOnly(leadId: string, status: string): Promise<any> {
+    return this.request(`/leads/${leadId}/status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ leads_status: status }),
+    });
+  }
+
+  /**
+   * Update lead contact status only
+   */
+  static async updateLeadContactStatus(leadId: string, status: string): Promise<any> {
+    return this.request(`/leads/${leadId}/contact-status`, {
+      method: 'PATCH',
+      body: JSON.stringify({ contact_status: status }),
+    });
+  }
+
+  /**
+   * Delete lead
+   */
+  static async deleteLead(leadId: string): Promise<any> {
+    return this.request(`/leads/${leadId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Get leads statistics
+   */
+  static async getLeadsStats(): Promise<any> {
+    return this.request('/leads/stats/overview', {
+      method: 'GET',
+    });
+  }
+
+  // ==================== ROOMS ASSIGNMENT API ====================
+
+  /**
+   * Get all rooms (role-based access)
+   * Note: This endpoint does NOT require authentication
+   */
+  static async getAllRooms(): Promise<any> {
+    return this.request('/rooms', {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Get specific room by ID
+   * Note: This endpoint does NOT require authentication
+   */
+  static async getRoomById(roomId: string): Promise<any> {
+    return this.request(`/rooms/${roomId}`, {
+      method: 'GET',
+    });
+  }
+
+  // ==================== ROOM ASSIGNMENT ====================
+
+  /**
+   * Assign user to room (Admin/Supervisor only)
+   * Note: This endpoint does NOT require authentication
+   */
+  static async assignUserToRoom(roomId: string, userId: string): Promise<any> {
+    console.log('🔄 Assigning user to room:', { roomId, userId });
+    console.log('🔄 Request body:', JSON.stringify({ user_id: userId }));
+    try {
+      const response = await this.request(`/rooms/${roomId}/assign`, {
+        method: 'POST',
+        body: JSON.stringify({ user_id: userId }),
+      });
+      console.log('✅ Assign response:', response);
+      return response;
+    } catch (error) {
+      console.error('❌ Assign error:', error);
+      throw error;
+    }
+  }
+
+  /**
+   * Unassign user from room (Admin/Supervisor only)
+   * Note: This endpoint does NOT require authentication
+   */
+  static async unassignUserFromRoom(roomId: string, userId: string): Promise<any> {
+    console.log('🔄 Unassigning user from room:', { roomId, userId });
+    return this.request(`/rooms/${roomId}/assign/${userId}`, {
+      method: 'DELETE',
+    });
+  }
+
+  /**
+   * Get room participants
+   * Note: This endpoint does NOT require authentication
+   */
+  static async getRoomParticipants(roomId: string): Promise<any> {
+    return this.request(`/rooms/${roomId}/participants`, {
+      method: 'GET',
+    });
+  }
+
+  // ==================== USER MANAGEMENT ====================
+
+  /**
+   * Get all users (for admin/supervisor)
+   * Note: This endpoint does NOT require authentication
+   */
+  static async getUsers(): Promise<any> {
+    return this.request('/users', {
+      method: 'GET',
+    });
+  }
+
+  // ==================== AUTH HELPERS ====================
+
+  /**
+   * Get auth token from localStorage
+   */
+  private static getAuthToken(): string | null {
+    if (typeof window !== 'undefined') {
+      const token = localStorage.getItem('authToken');
+      console.log('🔍 Getting auth token:', { 
+        hasToken: !!token, 
+        tokenLength: token?.length || 0,
+        tokenPreview: token ? token.substring(0, 20) + '...' : 'null',
+        timestamp: new Date().toISOString()
+      });
+      
+      // If no token but we have a user, this is the problem
+      const savedUser = localStorage.getItem('currentUser');
+      if (!token && savedUser) {
+        console.error('🚨 CRITICAL: User exists but no auth token!', {
+          userExists: !!savedUser,
+          tokenExists: !!token,
+          suggestion: 'This means login succeeded but token was not saved or was cleared'
+        });
+      }
+      
+      return token;
+    }
+    return null;
   }
 }
