@@ -9,6 +9,39 @@ import { useSocket } from '@/hooks/useSocket';
 import { useRealtimeMessages } from '@/hooks/useRealtimeMessages';
 import { QuickRoomAssignment } from './QuickRoomAssignment';
 
+// Contact interfaces for WhatsApp contact cards
+interface ContactPhone {
+  phone: string;
+  type?: string;
+  wa_id?: string;
+}
+
+interface ContactName {
+  formatted_name?: string;
+  first_name?: string;
+  last_name?: string;
+}
+
+interface ContactCard {
+  name?: ContactName;
+  phones?: ContactPhone[];
+}
+
+// Location interface for WhatsApp location messages
+interface LocationData {
+  latitude: number;
+  longitude: number;
+  name?: string;
+  address?: string;
+}
+
+// Extended metadata interface
+interface MessageMetadata {
+  location?: LocationData;
+  contacts?: ContactCard[];
+  [key: string]: unknown;
+}
+
 interface ChatWindowProps {
   roomId: string;
   userId: string;
@@ -100,7 +133,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       total: validMessages.length,
       fromBackend: messages.length,
       optimistic: optimisticMessages.length,
-      types: validMessages.reduce((acc: any, msg) => {
+      types: validMessages.reduce((acc: Record<string, number>, msg) => {
         const type = msg.content_type || 'unknown';
         acc[type] = (acc[type] || 0) + 1;
         return acc;
@@ -226,16 +259,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       
       // Mark as confirmed (turn blue checkmark)
       setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Send message error:', error);
       
       // Remove optimistic message on error
       setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
       
-      if (error.message?.includes('fetch') || error.message?.includes('network')) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      if (errorMessage.includes('fetch') || errorMessage.includes('network')) {
         alert('Cannot send message: Backend API is not running');
       } else {
-        alert(`Failed to send message: ${error.message || 'Unknown error'}`);
+        alert(`Failed to send message: ${errorMessage}`);
       }
       
       setInputMessage(messageText);
@@ -333,14 +367,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           URL.revokeObjectURL(fileUrl);
         }, 5000);
         
-      } catch (error: any) {
+      } catch (error: unknown) {
         console.error('❌ Send media error:', error);
         
         // Remove optimistic message on error
         setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
         URL.revokeObjectURL(fileUrl);
         
-        alert(`Failed to send ${fileType}: ${error.message || 'Unknown error'}`);
+        alert(`Failed to send ${fileType}: ${error instanceof Error ? error.message : 'Unknown error'}`);
       } finally {
         setSending(false);
       }
@@ -378,14 +412,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           });
 
           console.log('✅ Location sent successfully');
-        } catch (error: any) {
+        } catch (error: unknown) {
           console.error('❌ Send location error:', error);
-          alert(`Failed to send location: ${error.message || 'Unknown error'}`);
+          alert(`Failed to send location: ${error instanceof Error ? error.message : 'Unknown error'}`);
         } finally {
           setSending(false);
         }
       },
-      (error) => {
+      (error: GeolocationPositionError) => {
         setSending(false);
         alert(`Failed to get location: ${error.message}`);
       }
@@ -423,9 +457,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       });
 
       console.log('✅ Contact sent successfully');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Send contact error:', error);
-      alert(`Failed to send contact: ${error.message || 'Unknown error'}`);
+      alert(`Failed to send contact: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSending(false);
     }
@@ -475,9 +509,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       }, 1000);
       
       console.log('🎤 Voice recording started');
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Failed to start recording:', error);
-      alert(`Failed to access microphone: ${error.message}`);
+      alert(`Failed to access microphone: ${error instanceof Error ? error.message : 'Unknown error'}`);
     }
   };
 
@@ -569,14 +603,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         setRecordingTime(0);
       }, 5000);
       
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('❌ Send voice note error:', error);
       
       // Remove optimistic message on error
       setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
       URL.revokeObjectURL(fileUrl);
       
-      alert(`Failed to send voice note: ${error.message || 'Unknown error'}`);
+      alert(`Failed to send voice note: ${error instanceof Error ? error.message : 'Unknown error'}`);
     } finally {
       setSending(false);
     }
@@ -999,37 +1033,46 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             {/* Location Message */}
             {message.content_type === 'location' && (
               <div className="space-y-2">
-                {message.metadata?.location?.latitude && message.metadata?.location?.longitude ? (
-                  <div className="flex items-start space-x-3 p-3 bg-gray-100 rounded-lg">
-                    <MapPin className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
-                    <div className="flex-1 min-w-0">
-                      <p className="text-sm font-medium text-gray-900">
-                        {message.metadata.location.name || 'Shared Location'}
-                      </p>
-                      {message.metadata.location.address && (
-                        <p className="text-xs text-gray-600 mt-1">
-                          {message.metadata.location.address}
-                        </p>
-                      )}
-                      <p className="text-xs text-gray-500 mt-1 font-mono">
-                        {message.metadata.location.latitude.toFixed(6)}, {message.metadata.location.longitude.toFixed(6)}
-                      </p>
-                      <a
-                        href={`https://www.google.com/maps?q=${message.metadata.location.latitude},${message.metadata.location.longitude}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="text-xs text-blue-600 hover:underline mt-2 inline-block"
-                      >
-                        📍 Open in Google Maps
-                      </a>
+                {(() => {
+                  const metadata = message.metadata as MessageMetadata | null;
+                  const location = metadata?.location;
+                  
+                  if (location?.latitude && location?.longitude) {
+                    return (
+                      <div className="flex items-start space-x-3 p-3 bg-gray-100 rounded-lg">
+                        <MapPin className="h-5 w-5 text-red-600 flex-shrink-0 mt-0.5" />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-medium text-gray-900">
+                            {location.name || 'Shared Location'}
+                          </p>
+                          {location.address && (
+                            <p className="text-xs text-gray-600 mt-1">
+                              {location.address}
+                            </p>
+                          )}
+                          <p className="text-xs text-gray-500 mt-1 font-mono">
+                            {location.latitude.toFixed(6)}, {location.longitude.toFixed(6)}
+                          </p>
+                          <a
+                            href={`https://www.google.com/maps?q=${location.latitude},${location.longitude}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs text-blue-600 hover:underline mt-2 inline-block"
+                          >
+                            📍 Open in Google Maps
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  }
+                  
+                  return (
+                    <div className="flex items-center space-x-2 p-3 bg-gray-100 rounded-lg">
+                      <MapPin className="h-5 w-5 text-gray-500" />
+                      <span className="text-sm text-gray-600">Location shared</span>
                     </div>
-                  </div>
-                ) : (
-                  <div className="flex items-center space-x-2 p-3 bg-gray-100 rounded-lg">
-                    <MapPin className="h-5 w-5 text-gray-500" />
-                    <span className="text-sm text-gray-600">Location shared</span>
-                  </div>
-                )}
+                  );
+                })()}
                 {message.content_text && (
                   <p className="text-sm whitespace-pre-wrap break-words">
                     {message.content_text}
@@ -1044,22 +1087,27 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                 <div className="flex items-start space-x-3 p-3 bg-gray-100 rounded-lg">
                   <Contact2 className="h-5 w-5 text-blue-600 flex-shrink-0 mt-0.5" />
                   <div className="flex-1">
-                    {message.metadata?.contacts && Array.isArray(message.metadata.contacts) ? (
-                      message.metadata.contacts.map((contact: any, idx: number) => (
-                        <div key={idx} className={idx > 0 ? 'mt-2 pt-2 border-t border-gray-200' : ''}>
-                          <p className="text-sm font-medium text-gray-900">
-                            {contact.name?.formatted_name || contact.name?.first_name || 'Contact'}
-                          </p>
-                          {contact.phones && contact.phones.length > 0 && (
-                            <p className="text-xs text-gray-600 mt-0.5">
-                              📞 {contact.phones[0].phone}
+                    {(() => {
+                      const metadata = message.metadata as MessageMetadata | null;
+                      const contacts = metadata?.contacts;
+                      
+                      if (contacts && Array.isArray(contacts) && contacts.length > 0) {
+                        return contacts.map((contact, idx) => (
+                          <div key={idx} className={idx > 0 ? 'mt-2 pt-2 border-t border-gray-200' : ''}>
+                            <p className="text-sm font-medium text-gray-900">
+                              {contact.name?.formatted_name || contact.name?.first_name || 'Contact'}
                             </p>
-                          )}
-                        </div>
-                      ))
-                    ) : (
-                      <p className="text-sm text-gray-600">Contact card</p>
-                    )}
+                            {contact.phones && contact.phones.length > 0 && (
+                              <p className="text-xs text-gray-600 mt-0.5">
+                                📞 {contact.phones[0].phone}
+                              </p>
+                            )}
+                          </div>
+                        ));
+                      }
+                      
+                      return <p className="text-sm text-gray-600">Contact card</p>;
+                    })()}
                   </div>
                 </div>
                 {message.content_text && (
@@ -1353,6 +1401,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               console.log('Assignment changed');
             }}
           />
+          
+          {onShowLeadPopup && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={onShowLeadPopup}
+              title="Lead Information"
+            >
+              <Info className="h-5 w-5" />
+            </Button>
+          )}
           
           {onClose && (
             <Button variant="ghost" size="sm" onClick={onClose}>

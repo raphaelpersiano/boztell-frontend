@@ -46,7 +46,7 @@ export interface Message {
   wa_message_id: string | null;
   status: MessageStatus | null;
   status_timestamp: string | null;
-  metadata: Record<string, any> | null;
+  metadata: Record<string, unknown> | null;
   reply_to_wa_message_id: string | null;
   reaction_emoji: string | null;
   reaction_to_wa_message_id: string | null;
@@ -64,7 +64,7 @@ export interface MessageStatusHistory {
   status: MessageStatus | null;
   timestamp: string | null;
   recipient_id: string | null;
-  metadata: Record<string, any> | null;
+  metadata: Record<string, unknown> | null;
   created_at: string;
 }
 
@@ -84,7 +84,9 @@ export interface User {
 }
 
 // Legacy types for backward compatibility
-export interface ChatRoom extends Room {}
+export interface ChatRoom extends Room {
+  // Extends Room with any additional properties if needed
+}
 
 export type MessageType = 'text' | 'image' | 'video' | 'audio' | 'document' | 'contact' | 'location';
 

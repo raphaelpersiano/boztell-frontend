@@ -9,64 +9,8 @@ import { STAGE_2_STATUSES } from '@/lib/constants';
 import { useAuth } from '@/context/AuthContext';
 import { Filter } from 'lucide-react';
 
-// Mock data for stage 2
-const mockLeads: Lead[] = [
-  {
-    id: '7',
-    namaLengkap: 'Eko Prasetyo',
-    nomorTelpon: '+6281234567894',
-    nominalPinjaman: 300000000,
-    jenisUtang: 'KPR (Kredit Pemilikan Rumah)',
-    status: 'service',
-    createdAt: new Date('2024-01-08'),
-    updatedAt: new Date(Date.now() - 3 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 3'
-  },
-  {
-    id: '8',
-    namaLengkap: 'Linda Kartika',
-    nomorTelpon: '+6281234567897',
-    nominalPinjaman: 180000000,
-    jenisUtang: 'KTA (Kredit Tanpa Agunan)',
-    status: 'repayment',
-    createdAt: new Date('2024-01-05'),
-    updatedAt: new Date(Date.now() - 2 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 1'
-  },
-  {
-    id: '9',
-    namaLengkap: 'Bambang Sutrisno',
-    nomorTelpon: '+6281234567898',
-    nominalPinjaman: 120000000,
-    jenisUtang: 'Kredit Kendaraan',
-    status: 'advocate',
-    createdAt: new Date('2024-01-01'),
-    updatedAt: new Date(Date.now() - 5 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 2'
-  },
-  {
-    id: '10',
-    namaLengkap: 'Ratna Sari',
-    nomorTelpon: '+6281234567899',
-    nominalPinjaman: 90000000,
-    jenisUtang: 'KTA (Kredit Tanpa Agunan)',
-    status: 'service',
-    createdAt: new Date('2024-01-03'),
-    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 1'
-  },
-  {
-    id: '11',
-    namaLengkap: 'Dedi Kurniawan',
-    nomorTelpon: '+6281234567900',
-    nominalPinjaman: 400000000,
-    jenisUtang: 'KPR (Kredit Pemilikan Rumah)',
-    status: 'repayment',
-    createdAt: new Date('2023-12-20'),
-    updatedAt: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 3'
-  }
-];
+// Mock data for stage 2 (Empty for now - needs real data from backend)
+const mockLeads: Lead[] = [];
 
 const stage2Columns = [
   { title: 'Service', status: 'service' as LeadStatus },
@@ -80,32 +24,20 @@ export default function FunnelStage2Page() {
   
   // Get all leads for stage 2
   const allStage2Leads = React.useMemo(() => 
-    mockLeads.filter(lead => (STAGE_2_STATUSES as readonly string[]).includes(lead.status)),
+    mockLeads.filter(lead => (STAGE_2_STATUSES as readonly string[]).includes(lead.leads_status || '')),
     []
   );
 
-  // Get unique agents from leads
-  const agents = React.useMemo(() => {
-    const agentSet = new Set(allStage2Leads.map(lead => lead.assignedTo).filter(Boolean));
-    return Array.from(agentSet);
-  }, [allStage2Leads]);
+  // Get unique agents from leads (Note: Lead interface doesn't have assignedTo field anymore)
+  const agents: string[] = [];
 
   // Filter leads based on user role and selected agent
   const filteredLeads = React.useMemo(() => {
-    let leads = allStage2Leads;
-
-    // If user is agent, only show their own leads
-    if (user?.role === 'agent') {
-      leads = leads.filter(lead => lead.assignedTo === user.name);
-    } else {
-      // For admin/supervisor, filter by selected agent
-      if (selectedAgent !== 'all') {
-        leads = leads.filter(lead => lead.assignedTo === selectedAgent);
-      }
-    }
-
+    const leads = allStage2Leads;
+    // Note: Lead interface no longer has assignedTo field
+    // Filtering by agent is disabled for now
     return leads;
-  }, [allStage2Leads, user, selectedAgent]);
+  }, [allStage2Leads]);
 
   const [leads, setLeads] = React.useState<Lead[]>(filteredLeads);
 

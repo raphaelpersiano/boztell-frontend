@@ -13,67 +13,75 @@ import { Filter } from 'lucide-react';
 const mockLeads: Lead[] = [
   {
     id: '1',
-    namaLengkap: 'Ahmad Rizky Pratama',
-    nomorTelpon: '+6281234567890',
-    nominalPinjaman: 500000000,
-    jenisUtang: 'KPR (Kredit Pemilikan Rumah)',
-    status: 'warm',
-    createdAt: new Date('2024-01-15'),
-    updatedAt: new Date(Date.now() - 5 * 60 * 1000),
-    assignedTo: 'Agent 1'
+    utm_id: null,
+    leads_status: 'warm',
+    contact_status: null,
+    name: 'Ahmad Rizky Pratama',
+    phone: '+6281234567890',
+    outstanding: 500000000,
+    loan_type: 'KPR (Kredit Pemilikan Rumah)',
+    created_at: new Date('2024-01-15').toISOString(),
+    updated_at: new Date(Date.now() - 5 * 60 * 1000).toISOString(),
   },
   {
     id: '2',
-    namaLengkap: 'Siti Nurhaliza',
-    nomorTelpon: '+6281234567891',
-    nominalPinjaman: 200000000,
-    jenisUtang: 'KTA (Kredit Tanpa Agunan)',
-    status: 'cold',
-    createdAt: new Date('2024-01-14'),
-    updatedAt: new Date(Date.now() - 30 * 60 * 1000)
+    utm_id: null,
+    leads_status: 'cold',
+    contact_status: null,
+    name: 'Siti Nurhaliza',
+    phone: '+6281234567891',
+    outstanding: 200000000,
+    loan_type: 'KTA (Kredit Tanpa Agunan)',
+    created_at: new Date('2024-01-14').toISOString(),
+    updated_at: new Date(Date.now() - 30 * 60 * 1000).toISOString(),
   },
   {
     id: '3',
-    namaLengkap: 'Budi Santoso',
-    nomorTelpon: '+6281234567892',
-    nominalPinjaman: 150000000,
-    jenisUtang: 'Kredit Kendaraan',
-    status: 'hot',
-    createdAt: new Date('2024-01-13'),
-    updatedAt: new Date(Date.now() - 2 * 60 * 60 * 1000),
-    assignedTo: 'Agent 2'
+    utm_id: null,
+    leads_status: 'hot',
+    contact_status: null,
+    name: 'Budi Santoso',
+    phone: '+6281234567892',
+    outstanding: 150000000,
+    loan_type: 'Kredit Kendaraan',
+    created_at: new Date('2024-01-13').toISOString(),
+    updated_at: new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString(),
   },
   {
     id: '4',
-    namaLengkap: 'Dewi Sartika',
-    nomorTelpon: '+6281234567893',
-    nominalPinjaman: 75000000,
-    jenisUtang: 'KTA (Kredit Tanpa Agunan)',
-    status: 'paid',
-    createdAt: new Date('2024-01-10'),
-    updatedAt: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000),
-    assignedTo: 'Agent 1'
+    utm_id: null,
+    leads_status: 'hot',
+    contact_status: null,
+    name: 'Dewi Sartika',
+    phone: '+6281234567893',
+    outstanding: 75000000,
+    loan_type: 'KTA (Kredit Tanpa Agunan)',
+    created_at: new Date('2024-01-10').toISOString(),
+    updated_at: new Date(Date.now() - 1 * 24 * 60 * 60 * 1000).toISOString(),
   },
   {
     id: '5',
-    namaLengkap: 'Maya Sari',
-    nomorTelpon: '+6281234567895',
-    nominalPinjaman: 100000000,
-    jenisUtang: 'Kartu Kredit',
-    status: 'cold',
-    createdAt: new Date('2024-01-12'),
-    updatedAt: new Date(Date.now() - 6 * 60 * 60 * 1000)
+    utm_id: null,
+    leads_status: 'cold',
+    contact_status: null,
+    name: 'Maya Sari',
+    phone: '+6281234567895',
+    outstanding: 100000000,
+    loan_type: 'Kartu Kredit',
+    created_at: new Date('2024-01-12').toISOString(),
+    updated_at: new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString(),
   },
   {
     id: '6',
-    namaLengkap: 'Rudi Hartono',
-    nomorTelpon: '+6281234567896',
-    nominalPinjaman: 250000000,
-    jenisUtang: 'KPR (Kredit Pemilikan Rumah)',
-    status: 'warm',
-    createdAt: new Date('2024-01-11'),
-    updatedAt: new Date(Date.now() - 4 * 60 * 60 * 1000),
-    assignedTo: 'Agent 3'
+    utm_id: null,
+    leads_status: 'warm',
+    contact_status: null,
+    name: 'Rudi Hartono',
+    phone: '+6281234567896',
+    outstanding: 250000000,
+    loan_type: 'KPR (Kredit Pemilikan Rumah)',
+    created_at: new Date('2024-01-11').toISOString(),
+    updated_at: new Date(Date.now() - 4 * 60 * 60 * 1000).toISOString(),
   }
 ];
 
@@ -90,29 +98,26 @@ export default function FunnelStage1Page() {
   
   // Get all leads for stage 1
   const allStage1Leads = React.useMemo(() => 
-    mockLeads.filter(lead => (STAGE_1_STATUSES as readonly string[]).includes(lead.status)),
+    mockLeads.filter(lead => (STAGE_1_STATUSES as readonly string[]).includes(lead.leads_status || '')),
     []
   );
 
-  // Get unique agents from leads
-  const agents = React.useMemo(() => {
-    const agentSet = new Set(allStage1Leads.map(lead => lead.assignedTo).filter(Boolean));
-    return Array.from(agentSet);
-  }, [allStage1Leads]);
+  // Get unique agents from leads (Note: Lead interface doesn't have assignedTo field anymore)
+  const agents: string[] = [];
 
   // Filter leads based on user role and selected agent
   const filteredLeads = React.useMemo(() => {
-    let leads = allStage1Leads;
+    const leads = allStage1Leads;
 
-    // If user is agent, only show their own leads
-    if (user?.role === 'agent') {
-      leads = leads.filter(lead => lead.assignedTo === user.name);
-    } else {
-      // For admin/supervisor, filter by selected agent
-      if (selectedAgent !== 'all') {
-        leads = leads.filter(lead => lead.assignedTo === selectedAgent);
-      }
-    }
+    // Note: Lead interface no longer has assignedTo field
+    // Filtering by agent is disabled for now
+    // if (user?.role === 'agent') {
+    //   leads = leads.filter(lead => lead.assignedTo === user.name);
+    // } else {
+    //   if (selectedAgent !== 'all') {
+    //     leads = leads.filter(lead => lead.assignedTo === selectedAgent);
+    //   }
+    // }
 
     return leads;
   }, [allStage1Leads, user, selectedAgent]);
