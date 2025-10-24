@@ -73,42 +73,37 @@ const DraggableLeadCard: React.FC<DraggableLeadCardProps> = ({
                 <GripVertical className="h-3 w-3 text-gray-400" />
               </div>
               <h4 className="font-medium text-gray-900 text-sm truncate flex-1">
-                {lead.namaLengkap}
+                {lead.name || 'Unknown'}
               </h4>
             </div>
-            {lead.assignedTo && (
-              <Badge variant="info" size="sm">
-                Assigned
-              </Badge>
-            )}
           </div>
           
-          <p className="text-xs text-gray-600 ml-6">{lead.nomorTelpon}</p>
+          <p className="text-xs text-gray-600 ml-6">{lead.phone || '-'}</p>
           
           {status !== 'cold' && (
             <>
               <div className="flex items-center justify-between ml-6">
                 <span className="text-xs text-gray-500">Nominal:</span>
                 <span className="text-xs font-medium text-gray-900">
-                  {formatCurrency(lead.nominalPinjaman)}
+                  {formatCurrency(lead.outstanding || 0)}
                 </span>
               </div>
               
               <div className="flex items-center justify-between ml-6">
                 <span className="text-xs text-gray-500">Jenis:</span>
                 <span className="text-xs text-gray-900 truncate">
-                  {lead.jenisUtang}
+                  {lead.loan_type || '-'}
                 </span>
               </div>
             </>
           )}
           
           <div className="flex items-center justify-between pt-1 ml-6">
-            <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(lead.status)}`}>
-              {lead.status}
+            <span className={`text-xs px-2 py-1 rounded-full ${getStatusColor(lead.leads_status || 'cold')}`}>
+              {lead.leads_status || 'cold'}
             </span>
             <span className="text-xs text-gray-500">
-              {formatRelativeTime(lead.updatedAt)}
+              {formatRelativeTime(new Date(lead.updated_at))}
             </span>
           </div>
         </div>
@@ -134,8 +129,8 @@ const KanbanColumn: React.FC<KanbanColumnProps> = ({
   searchQuery
 }) => {
   const filteredLeads = leads.filter(lead => 
-    lead.namaLengkap.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    lead.nomorTelpon.includes(searchQuery)
+    (lead.name?.toLowerCase() || '').includes(searchQuery.toLowerCase()) ||
+    (lead.phone || '').includes(searchQuery)
   );
 
   const { setNodeRef, isOver } = useDroppable({
@@ -239,7 +234,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
       overColumn = columns.find(col => overId.startsWith(col.status));
     }
     
-    if (overColumn && overColumn.status !== activeLead.status) {
+    if (overColumn && overColumn.status !== activeLead.leads_status) {
       // Update the lead's status immediately for smooth visual feedback
       onStatusChange(activeId, overColumn.status);
     }
@@ -259,7 +254,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     if (!activeLead) return;
 
     // Determine the target status based on where it was dropped
-    let targetStatus: LeadStatus = activeLead.status;
+    let targetStatus: LeadStatus = activeLead.leads_status as LeadStatus || 'cold';
 
     // Check if dropped on a column (either by column-id or old method)
     let overColumn = columns.find(col => overId === `column-${col.status}`);
@@ -274,13 +269,13 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
     } else {
       // If dropped on another lead, find that lead's column
       const overLead = leads.find(lead => lead.id === overId);
-      if (overLead) {
-        targetStatus = overLead.status;
+      if (overLead && overLead.leads_status) {
+        targetStatus = overLead.leads_status as LeadStatus;
       }
     }
 
     // Update the lead's status if it's different
-    if (targetStatus !== activeLead.status) {
+    if (targetStatus !== activeLead.leads_status) {
       onStatusChange(activeId, targetStatus);
     }
   };
@@ -326,7 +321,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
         {/* Kanban Board */}
         <div className="flex space-x-6 overflow-x-auto pb-6 h-[calc(100%-100px)]">
           {columns.map((column) => {
-            const columnLeads = leads.filter(lead => lead.status === column.status);
+            const columnLeads = leads.filter(lead => lead.leads_status === column.status);
             
             return (
               <div key={column.status} id={column.status}>
@@ -347,7 +342,7 @@ export const KanbanBoard: React.FC<KanbanBoardProps> = ({
           {activeLead ? (
             <DraggableLeadCard
               lead={activeLead}
-              status={activeLead.status}
+              status={(activeLead.leads_status as LeadStatus) || 'cold'}
               onLeadClick={onLeadClick}
               isDragging={true}
             />
