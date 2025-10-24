@@ -1,0 +1,302 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Socket.IO Event Tester</title>
+  <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+  <style>
+    body {
+      font-family: monospace;
+      padding: 20px;
+      background: #1e1e1e;
+      color: #d4d4d4;
+    }
+    .container {
+      max-width: 1000px;
+      margin: 0 auto;
+    }
+    h1 {
+      color: #4ec9b0;
+    }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 5px;
+      font-weight: bold;
+    }
+    .connected {
+      background: #0e6e0e;
+      color: #4ec9b0;
+    }
+    .disconnected {
+      background: #6e0e0e;
+      color: #f48771;
+    }
+    .log {
+      background: #252526;
+      border: 1px solid #3e3e42;
+      padding: 15px;
+      margin: 10px 0;
+      border-radius: 5px;
+      max-height: 500px;
+      overflow-y: auto;
+    }
+    .log-entry {
+      margin: 5px 0;
+      padding: 8px;
+      border-left: 3px solid #4ec9b0;
+      background: #2d2d30;
+    }
+    .log-entry.error {
+      border-left-color: #f48771;
+    }
+    .log-entry.warning {
+      border-left-color: #dcdcaa;
+    }
+    .timestamp {
+      color: #858585;
+      font-size: 0.9em;
+    }
+    button {
+      background: #0e639c;
+      color: white;
+      border: none;
+      padding: 10px 20px;
+      margin: 5px;
+      border-radius: 5px;
+      cursor: pointer;
+      font-size: 14px;
+    }
+    button:hover {
+      background: #1177bb;
+    }
+    button:disabled {
+      background: #3e3e42;
+      cursor: not-allowed;
+    }
+    input {
+      background: #3c3c3c;
+      color: #d4d4d4;
+      border: 1px solid #3e3e42;
+      padding: 8px;
+      margin: 5px;
+      border-radius: 3px;
+      font-family: monospace;
+      width: 300px;
+    }
+    .controls {
+      margin: 20px 0;
+      padding: 15px;
+      background: #252526;
+      border-radius: 5px;
+    }
+    .json {
+      background: #1e1e1e;
+      padding: 10px;
+      margin: 5px 0;
+      border-radius: 3px;
+      overflow-x: auto;
+    }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🔌 Socket.IO Event Tester</h1>
+    
+    <div id="status" class="status disconnected">
+      ❌ Disconnected
+    </div>
+
+    <div class="controls">
+      <h3>📡 Backend URL</h3>
+      <input type="text" id="socketUrl" value="http://localhost:8080" placeholder="Socket.IO URL">
+      <button onclick="connect()">Connect</button>
+      <button onclick="disconnect()">Disconnect</button>
+      
+      <h3>📨 Join Room</h3>
+      <input type="text" id="roomId" placeholder="Room UUID (e.g., 123e4567-e89b-12d3-a456-426614174000)">
+      <button onclick="joinRoom()" id="joinBtn" disabled>Join Room</button>
+      <button onclick="leaveRoom()" id="leaveBtn" disabled>Leave Room</button>
+
+      <h3>🧪 Test Emit Event</h3>
+      <input type="text" id="testEvent" placeholder="Event name (e.g., test_message)" value="test_message">
+      <button onclick="emitTestEvent()" id="emitBtn" disabled>Emit Test Event</button>
+    </div>
+
+    <div class="controls">
+      <h3>📊 Event Log</h3>
+      <button onclick="clearLog()">Clear Log</button>
+      <button onclick="exportLog()">Export Log</button>
+    </div>
+
+    <div id="log" class="log">
+      <div class="log-entry">
+        <span class="timestamp">[Ready]</span> Waiting for connection...
+      </div>
+    </div>
+  </div>
+
+  <script>
+    let socket = null;
+    let currentRoom = null;
+    const logContainer = document.getElementById('log');
+    const statusDiv = document.getElementById('status');
+
+    function log(message, type = 'info') {
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      
+      const timestamp = new Date().toLocaleTimeString('id-ID', {
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+        fractionalSecondDigits: 3
+      });
+      
+      entry.innerHTML = `<span class="timestamp">[${timestamp}]</span> ${message}`;
+      logContainer.appendChild(entry);
+      logContainer.scrollTop = logContainer.scrollHeight;
+    }
+
+    function updateStatus(connected) {
+      if (connected) {
+        statusDiv.className = 'status connected';
+        statusDiv.textContent = `✅ Connected: ${socket.id}`;
+        document.getElementById('joinBtn').disabled = false;
+        document.getElementById('emitBtn').disabled = false;
+      } else {
+        statusDiv.className = 'status disconnected';
+        statusDiv.textContent = '❌ Disconnected';
+        document.getElementById('joinBtn').disabled = true;
+        document.getElementById('leaveBtn').disabled = true;
+        document.getElementById('emitBtn').disabled = true;
+      }
+    }
+
+    function connect() {
+      const url = document.getElementById('socketUrl').value;
+      
+      if (socket) {
+        log('⚠️ Already connected. Disconnect first.', 'warning');
+        return;
+      }
+
+      log(`🔌 Connecting to ${url}...`);
+      
+      socket = io(url, {
+        transports: ['websocket', 'polling'],
+        reconnection: true,
+      });
+
+      // Listen to ALL events
+      socket.onAny((eventName, ...args) => {
+        log(`🔔 <strong>Event: ${eventName}</strong><div class="json">${JSON.stringify(args, null, 2)}</div>`);
+      });
+
+      socket.on('connect', () => {
+        log(`✅ Connected successfully! Socket ID: <strong>${socket.id}</strong>`);
+        updateStatus(true);
+      });
+
+      socket.on('disconnect', (reason) => {
+        log(`❌ Disconnected: ${reason}`, 'error');
+        updateStatus(false);
+      });
+
+      socket.on('connect_error', (err) => {
+        log(`❌ Connection error: ${err.message}`, 'error');
+        updateStatus(false);
+      });
+    }
+
+    function disconnect() {
+      if (!socket) {
+        log('⚠️ Not connected', 'warning');
+        return;
+      }
+
+      log('📤 Disconnecting...');
+      socket.disconnect();
+      socket = null;
+      updateStatus(false);
+    }
+
+    function joinRoom() {
+      const roomId = document.getElementById('roomId').value.trim();
+      
+      if (!socket || !socket.connected) {
+        log('⚠️ Not connected to Socket.IO server', 'warning');
+        return;
+      }
+
+      if (!roomId) {
+        log('⚠️ Please enter a room ID', 'warning');
+        return;
+      }
+
+      log(`📨 Joining room: <strong>${roomId}</strong>`);
+      socket.emit('join_room', roomId);
+      currentRoom = roomId;
+      document.getElementById('leaveBtn').disabled = false;
+    }
+
+    function leaveRoom() {
+      if (!currentRoom) {
+        log('⚠️ Not in any room', 'warning');
+        return;
+      }
+
+      log(`📤 Leaving room: <strong>${currentRoom}</strong>`);
+      socket.emit('leave_room', currentRoom);
+      currentRoom = null;
+      document.getElementById('leaveBtn').disabled = true;
+    }
+
+    function emitTestEvent() {
+      const eventName = document.getElementById('testEvent').value.trim();
+      
+      if (!socket || !socket.connected) {
+        log('⚠️ Not connected to Socket.IO server', 'warning');
+        return;
+      }
+
+      if (!eventName) {
+        log('⚠️ Please enter an event name', 'warning');
+        return;
+      }
+
+      const testData = {
+        message: 'Test from Socket.IO Tester',
+        timestamp: new Date().toISOString(),
+        room_id: currentRoom || 'no-room',
+      };
+
+      log(`🧪 Emitting event: <strong>${eventName}</strong><div class="json">${JSON.stringify(testData, null, 2)}</div>`);
+      socket.emit(eventName, testData);
+    }
+
+    function clearLog() {
+      logContainer.innerHTML = '<div class="log-entry"><span class="timestamp">[Cleared]</span> Log cleared</div>';
+    }
+
+    function exportLog() {
+      const logText = logContainer.innerText;
+      const blob = new Blob([logText], { type: 'text/plain' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `socket-io-log-${Date.now()}.txt`;
+      a.click();
+      URL.revokeObjectURL(url);
+      log('💾 Log exported');
+    }
+
+    // Auto-connect on load
+    window.addEventListener('load', () => {
+      log('🚀 Socket.IO Event Tester ready');
+      log('ℹ️ Click "Connect" to start testing');
+    });
+  </script>
+</body>
+</html>

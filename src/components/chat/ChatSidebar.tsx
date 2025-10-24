@@ -5,7 +5,6 @@ import { Search, MoreVertical, Archive, Users, MessageSquarePlus } from 'lucide-
 import { Button } from '../ui/Button';
 import { Badge } from '../ui/Badge';
 import { formatRelativeTime } from '@/lib/utils';
-import { useRooms } from '@/hooks/useSupabaseRealtime';
 import type { Room } from '@/types';
 
 interface ChatSidebarProps {
@@ -14,6 +13,8 @@ interface ChatSidebarProps {
   userId: string;
   userRole: 'admin' | 'supervisor' | 'agent';
   onNewChat?: () => void;
+  rooms?: Room[];  // Accept rooms as prop
+  loading?: boolean;
 }
 
 export const ChatSidebar: React.FC<ChatSidebarProps> = ({
@@ -21,13 +22,12 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   onRoomSelect,
   userId,
   userRole,
-  onNewChat
+  onNewChat,
+  rooms = [],
+  loading = false,
 }) => {
   const [searchQuery, setSearchQuery] = React.useState('');
   const [activeTab, setActiveTab] = React.useState<'all' | 'unassigned' | 'assigned'>('all');
-
-  // 🔥 USE REALTIME HOOK
-  const { rooms, loading, error } = useRooms(userId, userRole);
 
   // Filter rooms based on search and tab
   const filteredRooms = rooms.filter(room => {
@@ -48,9 +48,15 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   });
 
   const formatLastMessage = (room: Room): string => {
+    // Handle string last_message from new API
+    if (typeof room.last_message === 'string') {
+      return room.last_message || 'No messages yet';
+    }
+    
+    // Handle old object format for backward compatibility
     if (!room.last_message) return 'No messages yet';
     
-    const msg = room.last_message;
+    const msg = room.last_message as any;
     
     // If it's a media message
     if (msg.media_type) {
@@ -81,12 +87,11 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
     }
   };
 
-  if (error) {
+  if (loading) {
     return (
       <div className="w-80 bg-white border-r border-gray-200 flex items-center justify-center h-full">
         <div className="text-center p-4">
-          <p className="text-red-500 mb-2">Error loading chats</p>
-          <p className="text-sm text-gray-500">{error.message}</p>
+          <p className="text-gray-500">Loading chats...</p>
         </div>
       </div>
     );
@@ -171,82 +176,86 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
 
       {/* Chat List */}
       <div className="flex-1 overflow-y-auto">
-        {filteredRooms.map((room) => {
-          const customerName = room.lead?.name || room.title || 'Unknown';
-          const customerPhone = room.phone || '';
-          const lastMessageText = formatLastMessage(room);
-          const lastMessageTime = room.last_message?.created_at || room.updated_at;
-          const unreadCount = room.unread_count || 0;
-          const isAssigned = !!room.leads_id; // Has lead = assigned
-          const leadStatus = room.lead?.leads_status || 'cold';
-          
-          return (
-            <div
-              key={room.id}
-              onClick={() => onRoomSelect(room.id)}
-              className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
-              }`}
-            >
-              <div className="flex items-start space-x-3">
-                {/* Avatar */}
-                <div className="flex-shrink-0">
-                  <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
-                    <Users className="h-6 w-6 text-gray-600" />
-                  </div>
-                </div>
-
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm font-medium text-gray-900 truncate">
-                      {customerName}
-                    </p>
-                    <p className="text-xs text-gray-500">
-                      {formatRelativeTime(lastMessageTime)}
-                    </p>
-                  </div>
-                  
-                  <p className="text-xs text-gray-500 mb-1">{customerPhone}</p>
-                  
-                  <div className="flex items-center justify-between">
-                    <p className="text-sm text-gray-600 truncate">{lastMessageText}</p>
-                    <div className="flex items-center space-x-1">
-                      {unreadCount > 0 && (
-                        <Badge variant="info" size="sm">
-                          {unreadCount}
-                        </Badge>
-                      )}
-                    </div>
-                  </div>
-
-                  {/* Assignment info */}
-                  <div className="flex items-center justify-between mt-2">
-                    <div className="flex items-center space-x-2">
-                      {isAssigned ? (
-                        <Badge variant="success" size="sm">
-                          Assigned
-                        </Badge>
-                      ) : (
-                        <Badge variant="warning" size="sm">
-                          Unassigned
-                        </Badge>
-                      )}
-                    </div>
-                    <Badge variant="default" size="sm">
-                      {leadStatus}
-                    </Badge>
-                  </div>
-                </div>
-              </div>
-            </div>
-          );
-        })}
-        
-        {filteredRooms.length === 0 && (
+        {loading && rooms.length === 0 ? (
+          <div className="p-8 text-center text-gray-500">
+            <p>Loading chats...</p>
+          </div>
+        ) : filteredRooms.length === 0 ? (
           <div className="p-8 text-center text-gray-500">
             <Users className="h-12 w-12 mx-auto mb-4 text-gray-300" />
             <p>No chats found</p>
           </div>
+        ) : (
+          filteredRooms.map((room) => {
+            const customerName = room.lead?.name || room.title || 'Unknown';
+            const customerPhone = room.phone || '';
+            const lastMessageText = formatLastMessage(room);
+            const lastMessageTime = room.updated_at; // Use updated_at
+            const unreadCount = room.unread_count || 0;
+            const isAssigned = !!room.leads_id; // Has lead = assigned
+            const leadStatus = room.lead?.leads_status || 'cold';
+          
+            return (
+              <div
+                key={room.id}
+                onClick={() => onRoomSelect(room.id)}
+                className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                  selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                }`}
+              >
+                <div className="flex items-start space-x-3">
+                  {/* Avatar */}
+                  <div className="flex-shrink-0">
+                    <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
+                      <Users className="h-6 w-6 text-gray-600" />
+                    </div>
+                  </div>
+
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm font-medium text-gray-900 truncate">
+                        {customerName}
+                      </p>
+                      <p className="text-xs text-gray-500">
+                        {formatRelativeTime(lastMessageTime)}
+                      </p>
+                    </div>
+                    
+                    <p className="text-xs text-gray-500 mb-1">{customerPhone}</p>
+                    
+                    <div className="flex items-center justify-between">
+                      <p className="text-sm text-gray-600 truncate">{lastMessageText}</p>
+                      <div className="flex items-center space-x-1">
+                        {unreadCount > 0 && (
+                          <Badge variant="info" size="sm">
+                            {unreadCount}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Assignment info */}
+                    <div className="flex items-center justify-between mt-2">
+                      <div className="flex items-center space-x-2">
+                        {isAssigned ? (
+                          <Badge variant="success" size="sm">
+                            Assigned
+                          </Badge>
+                        ) : (
+                          <Badge variant="warning" size="sm">
+                            Unassigned
+                          </Badge>
+                        )}
+                      </div>
+                      <Badge variant="default" size="sm">
+                        {leadStatus}
+                      </Badge>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            );
+          })
         )}
       </div>
     </div>

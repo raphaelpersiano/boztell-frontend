@@ -1,5 +1,5 @@
 // API Configuration
-export const API_BASE_URL = 'http://localhost:8080';
+export const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
 
 // API Types
 export interface LoginRequest {
@@ -306,6 +306,28 @@ export class ApiService {
    */
   static async getTemplates(): Promise<any> {
     return this.request('/messages/templates', {
+      method: 'GET',
+    });
+  }
+
+  /**
+   * Get all messages for a room (historical messages)
+   * Endpoint: GET /messages/room/:roomId
+   */
+  static async getRoomMessages(roomId: string, options?: {
+    limit?: number;
+    offset?: number;
+    order?: 'asc' | 'desc';
+  }): Promise<any> {
+    const params = new URLSearchParams();
+    if (options?.limit) params.append('limit', options.limit.toString());
+    if (options?.offset) params.append('offset', options.offset.toString());
+    if (options?.order) params.append('order', options.order);
+
+    const queryString = params.toString();
+    const url = `/messages/room/${roomId}${queryString ? `?${queryString}` : ''}`;
+
+    return this.request(url, {
       method: 'GET',
     });
   }
