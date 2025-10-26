@@ -32,7 +32,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // Filter rooms based on search and tab
   const filteredRooms = rooms
     .filter(room => {
-      const customerName = room.lead?.name || room.title || 'Unknown';
+      const customerName = room.title || room.lead?.name || `Customer ${room.phone?.slice(-4)}` || 'Unknown';
       const customerPhone = room.phone || '';
       
       const matchesSearch = customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -202,7 +202,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
         ) : (
           <>
             {filteredRooms.map((room) => {
-              const customerName = room.lead?.name || room.title || 'Unknown';
+              const customerName = room.title || room.lead?.name || `Customer ${room.phone?.slice(-4)}` || 'Unknown';
               const customerPhone = room.phone || '';
               const lastMessageText = formatLastMessage(room);
               // Use last_message_at if available, fallback to updated_at, then created_at

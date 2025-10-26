@@ -51,6 +51,32 @@ export default function ChatPage() {
     ? { ...selectedRoom, ...optimisticRoomUpdate[selectedRoomId || ''] }
     : selectedRoom;
 
+  // Transform displayRoom to match Room type expected by LeadManagementPopup
+  const transformedDisplayRoom = displayRoom ? {
+    id: displayRoom.room_id,
+    phone: displayRoom.room_phone,
+    title: displayRoom.room_title,
+    leads_id: displayRoom.room_leads_id || displayRoom.leads_info?.id || null, // Prioritize direct leads_id field
+    created_at: displayRoom.room_created_at,
+    updated_at: displayRoom.room_updated_at,
+    lead: displayRoom.leads_info ? {
+      id: displayRoom.leads_info.id,
+      name: displayRoom.leads_info.name,
+      phone: displayRoom.leads_info.phone,
+      leads_status: displayRoom.leads_info.leads_status,
+      contact_status: displayRoom.leads_info.contact_status,
+      outstanding: 0,
+      loan_type: '',
+      utm_id: null,
+      created_at: '',
+      updated_at: '',
+    } : undefined,
+    last_message: displayRoom.last_message,
+    last_message_at: displayRoom.last_message_at,
+    unread_count: displayRoom.unread_count,
+    is_assigned: displayRoom.is_assigned,
+  } : null;
+
   const handleSaveLeadPopup = (updatedData?: { lead?: any; roomTitle?: string }) => {
     setShowLeadPopup(false);
     
@@ -102,7 +128,7 @@ export default function ChatPage() {
       created_at: room.room_created_at,
       updated_at: room.room_updated_at,
       lead: room.leads_info,
-      leads_id: room.leads_info?.id || null,
+      leads_id: room.room_leads_id || room.leads_info?.id || null, // Prioritize direct leads_id field
       participants: room.participants,
       // Use backend's is_assigned field (more reliable than counting participants)
       is_assigned: room.is_assigned,
@@ -159,6 +185,7 @@ export default function ChatPage() {
                 roomId={selectedRoomId}
                 userId={user?.id || ''}
                 customerPhone={selectedRoom?.room_phone || undefined}
+                roomTitle={selectedRoom?.room_title || undefined}
                 onShowLeadPopup={() => setShowLeadPopup(true)}
               />
             ) : (
@@ -228,7 +255,7 @@ export default function ChatPage() {
           {showLeadPopup && selectedRoomId && (
             <LeadManagementPopup
               roomId={selectedRoomId}
-              room={displayRoom || null}
+              room={transformedDisplayRoom}
               isOpen={showLeadPopup}
               onClose={() => setShowLeadPopup(false)}
               onSave={handleSaveLeadPopup}

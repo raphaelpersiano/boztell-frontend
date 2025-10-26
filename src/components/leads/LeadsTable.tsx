@@ -38,26 +38,17 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
     
     setLoading(true);
     try {
-      let result;
-      
       console.log('📋 Fetching leads for user:', { id: user.id, role: user.role });
       
-      if (user.role === 'agent') {
-        // Agents only see their own leads
-        console.log('📋 Fetching leads by user ID:', user.id);
-        result = await ApiService.getLeadsByUserId(user.id);
-      } else {
-        // Admin/Supervisor see all leads with optional filters
-        const filters: Record<string, string> = {};
-        if (statusFilter !== 'all') {
-          filters.leads_status = statusFilter;
-        }
-        if (searchQuery.trim()) {
-          filters.search = searchQuery.trim();
-        }
-        console.log('📋 Fetching all leads with filters:', filters);
-        result = await ApiService.getAllLeads(filters);
-      }
+      // Use unified endpoint with role-based access
+      const result = await ApiService.getLeadsWithRoleAccess({
+        user_id: user.id,
+        user_role: user.role as 'admin' | 'supervisor' | 'agent',
+        leads_status: statusFilter !== 'all' ? statusFilter : undefined,
+        search: searchQuery.trim() || undefined,
+        page: 1,
+        limit: 200,
+      });
       
       console.log('📋 Fetch leads result:', result);
       

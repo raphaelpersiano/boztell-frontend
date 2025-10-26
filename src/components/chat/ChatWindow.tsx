@@ -46,6 +46,7 @@ interface ChatWindowProps {
   roomId: string;
   userId: string;
   customerPhone?: string;
+  roomTitle?: string;
   onShowLeadPopup?: () => void;
   onClose?: () => void;
 }
@@ -54,6 +55,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   roomId,
   userId,
   customerPhone,
+  roomTitle,
   onShowLeadPopup,
   onClose,
 }) => {
@@ -1384,12 +1386,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <User className="h-6 w-6 text-gray-600" />
           </div>
           <div>
-            <h3 className="font-semibold text-gray-900">{customerPhone || 'Customer'}</h3>
-            <div className="flex items-center space-x-1">
-              <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
-              <span className="text-xs text-gray-500">
-                {isConnected ? 'Connected' : 'Connecting...'}
-              </span>
+            <h3 className="font-semibold text-gray-900">
+              {roomTitle || customerPhone || 'Customer'}
+            </h3>
+            <div className="flex items-center space-x-2">
+              <span className="text-xs text-gray-500">{customerPhone}</span>
+              <span className="text-xs text-gray-400">•</span>
+              <div className="flex items-center space-x-1">
+                <div className={`w-2 h-2 rounded-full ${isConnected ? 'bg-green-500' : 'bg-gray-400'}`} />
+                <span className="text-xs text-gray-500">
+                  {isConnected ? 'Connected' : 'Connecting...'}
+                </span>
+              </div>
             </div>
           </div>
         </div>

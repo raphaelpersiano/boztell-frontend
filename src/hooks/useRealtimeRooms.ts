@@ -9,6 +9,7 @@ export interface Room {
   room_title: string;
   room_created_at: string;
   room_updated_at: string;
+  room_leads_id?: string | null; // Direct leads_id from rooms table
   leads_info?: {
     id: string;
     name: string;

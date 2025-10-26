@@ -34,36 +34,91 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
     outstanding: 0,
     loan_type: '',
     leads_status: 'cold',
-    contact_status: '',
+    contact_status: 'uncontacted',
   });
 
   const [roomTitle, setRoomTitle] = useState(room?.title || '');
 
   useEffect(() => {
-    if (room?.lead) {
-      setFormData({
-        name: room.lead.name || '',
-        phone: room.lead.phone || '',
-        outstanding: room.lead.outstanding || 0,
-        loan_type: room.lead.loan_type || '',
-        leads_status: room.lead.leads_status || 'cold',
-        contact_status: room.lead.contact_status || '',
+    let cancelled = false;
+    async function fetchLeadIfNeeded() {
+      console.log('🔍 Checking room data:', { 
+        hasLead: !!room?.lead, 
+        hasLeadsId: !!room?.leads_id,
+        leadsId: room?.leads_id,
+        roomData: room 
       });
-      setMode('view');
-    } else if (room?.leads_id) {
-      // Room has leads_id but lead not loaded yet - show view mode
-      setMode('view');
-    } else {
-      // No lead connected - show create mode
-      setMode('create');
+
+      // Check if room has lead data already loaded
+      if (room?.lead) {
+        console.log('✅ Room has lead object:', room.lead);
+        setFormData({
+          name: room.lead.name || '',
+          phone: room.lead.phone || '',
+          outstanding: room.lead.outstanding || 0,
+          loan_type: room.lead.loan_type || '',
+          leads_status: room.lead.leads_status || 'cold',
+          contact_status: room.lead.contact_status || '',
+        });
+        setMode('view');
+      } else if (room?.leads_id) {
+        // Room has leads_id but lead not loaded yet - fetch lead
+        console.log('🔄 Room has leads_id but no lead object, fetching lead data:', room.leads_id);
+        setMode('edit');
+        setLoading(true);
+        try {
+          const result = await ApiService.getLeadById(room.leads_id);
+          console.log('📋 Fetched lead result:', result);
+          if (!cancelled && result.success && result.data) {
+            setFormData({
+              name: result.data.name || '',
+              phone: result.data.phone || '',
+              outstanding: result.data.outstanding || 0,
+              loan_type: result.data.loan_type || '',
+              leads_status: result.data.leads_status || 'cold',
+              contact_status: result.data.contact_status || '',
+            });
+            console.log('✅ Lead data loaded successfully, form mode: edit');
+          } else {
+            console.warn('⚠️ Failed to fetch lead:', result.message);
+          }
+        } catch (err) {
+          if (!cancelled) {
+            console.error('❌ Failed to fetch lead info:', err);
+          }
+        } finally {
+          if (!cancelled) setLoading(false);
+        }
+      } else {
+        // No lead connected - show create mode
+        console.log('🆕 No leads_id found, showing create form');
+        setMode('create');
+        // Reset form with room phone
+        setFormData({
+          name: '',
+          phone: room?.phone || '',
+          outstanding: 0,
+          loan_type: '',
+          leads_status: 'cold',
+          contact_status: 'uncontacted',
+        });
+      }
+      setRoomTitle(room?.title || '');
     }
-    setRoomTitle(room?.title || '');
+    fetchLeadIfNeeded();
+    return () => { cancelled = true; };
   }, [room]);
 
   const handleCreateLead = async () => {
     setLoading(true);
     try {
+      console.log('🔄 Creating lead with data:', formData);
+      console.log('🔄 API Base URL:', process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080');
+      console.log('🔄 Full endpoint:', `${process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080'}/leads`);
+      
       const result = await ApiService.createNewLead(formData);
+      
+      console.log('🔄 Create lead result:', result);
       
       if (result.success) {
         // Link lead to room (without updating room title)
@@ -75,15 +130,20 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
           onSave({ lead: result.data });
           onClose();
           console.log('✅ Lead created and linked to room successfully');
+          alert('Lead created successfully!');
         } else {
           throw new Error(roomResult.message || 'Failed to link lead to room');
         }
       } else {
-        throw new Error(result.message || 'Create failed');
+        // Show detailed error message
+        const errorMsg = result.message || result.error || 'Create failed';
+        console.error('❌ Create lead failed:', errorMsg);
+        alert('Failed to create lead: ' + errorMsg);
       }
     } catch (error) {
-      console.error('Create lead error:', error);
-      alert('Failed to create lead: ' + (error instanceof Error ? error.message : 'Network error'));
+      console.error('❌ Create lead error:', error);
+      const errorMsg = error instanceof Error ? error.message : 'Network error';
+      alert('Failed to create lead: ' + errorMsg);
     } finally {
       setLoading(false);
     }
@@ -94,20 +154,18 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
 
     setLoading(true);
     try {
-      const result = await ApiService.updateExistingLead(room.leads_id, formData);
+      // Update lead with room_id and title in payload
+      const result = await ApiService.updateExistingLead(room.leads_id, {
+        ...formData,
+        room_id: roomId,
+        title: roomTitle,
+      });
       
       if (result.success) {
-        // Update room title separately if changed
-        if (roomTitle !== room.title) {
-          const roomResult = await ApiService.updateRoom(roomId, { title: roomTitle });
-          if (!roomResult.success) {
-            console.warn('Failed to update room title:', roomResult.message);
-          }
-        }
-
         onSave({ lead: result.data, roomTitle });
         setMode('view');
         console.log('✅ Lead updated successfully');
+        alert('Lead updated successfully!');
       } else {
         throw new Error(result.message || 'Update failed');
       }
@@ -236,12 +294,15 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
               <label className="block text-sm font-medium text-gray-700 mb-2">
                 Contact Status
               </label>
-              <Input
+              <select
                 value={formData.contact_status}
                 onChange={(e) => setFormData({ ...formData, contact_status: e.target.value })}
-                placeholder="e.g., First Contact, Follow Up"
+                className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
                 disabled={mode === 'view'}
-              />
+              >
+                <option value="uncontacted">Uncontacted</option>
+                <option value="contacted">Contacted</option>
+              </select>
             </div>
           </div>
         </div>

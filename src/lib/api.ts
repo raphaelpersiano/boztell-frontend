@@ -56,19 +56,9 @@ export class ApiService {
 
     try {
       const response = await fetch(url, config);
-      console.log('📡 Response Status:', response.status, response.statusText);
-      console.log('📡 Response Headers:', Object.fromEntries(response.headers.entries()));
-      
-      // Check if response is JSON
-      const contentType = response.headers.get('content-type');
-      console.log('📡 Content-Type:', contentType);
-      
-      if (!contentType || !contentType.includes('application/json')) {
-        const text = await response.text();
-        console.error('❌ Non-JSON Response:', text);
-        console.error('❌ Response Status:', response.status);
-        console.error('❌ Content-Type:', contentType);
-        throw new Error(`Expected JSON response, got ${contentType || 'unknown'}. Status: ${response.status}. Response: ${text.substring(0, 200)}`);
+
+      if (!response) {
+        throw new Error('No response from server');
       }
 
       // Read response body as text first to handle empty responses
@@ -556,6 +546,27 @@ export class ApiService {
   }
 
   /**
+   * Get lead by ID (for LeadManagementPopup)
+   * Endpoint: GET /leads/:leadId
+   */
+  static async getLeadById(leadId: string): Promise<any> {
+    try {
+      console.log('📋 Fetching lead by ID:', leadId);
+      const response = await this.request(`/leads/${leadId}`, {
+        method: 'GET',
+      });
+      console.log('✅ Get lead by ID response:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Get lead by ID error:', error);
+      return { 
+        success: false, 
+        message: error instanceof Error ? error.message : 'Failed to fetch lead' 
+      };
+    }
+  }
+
+  /**
    * Create a new lead (updated endpoint)
    */
   static async createNewLead(data: {
@@ -587,8 +598,12 @@ export class ApiService {
         stack: error instanceof Error ? error.stack : undefined,
       });
       
-      // Re-throw the error instead of returning success: false
-      throw error;
+      // Return error instead of throwing
+      return {
+        success: false,
+        message: error instanceof Error ? error.message : 'Failed to create lead',
+        error: error
+      };
     }
   }
 
@@ -603,6 +618,8 @@ export class ApiService {
     leads_status?: string;
     contact_status?: string;
     utm_id?: string;
+    room_id?: string;
+    title?: string;
   }): Promise<any> {
     try {
       console.log('🔄 Updating lead:', leadId, data);
