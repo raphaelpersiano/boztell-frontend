@@ -30,22 +30,36 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   const [activeTab, setActiveTab] = React.useState<'all' | 'unassigned' | 'assigned'>('all');
 
   // Filter rooms based on search and tab
-  const filteredRooms = rooms.filter(room => {
-    const customerName = room.lead?.name || room.title || 'Unknown';
-    const customerPhone = room.phone || '';
-    
-    const matchesSearch = customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-                         customerPhone.includes(searchQuery);
-    
-    // Check if room has lead (simplified - you may want to check participants)
-    const isAssigned = !!room.leads_id;
-    
-    if (activeTab === 'all') return matchesSearch;
-    if (activeTab === 'unassigned') return matchesSearch && !isAssigned;
-    if (activeTab === 'assigned') return matchesSearch && isAssigned;
-    
-    return matchesSearch;
-  });
+  const filteredRooms = rooms
+    .filter(room => {
+      const customerName = room.lead?.name || room.title || 'Unknown';
+      const customerPhone = room.phone || '';
+      
+      const matchesSearch = customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
+                           customerPhone.includes(searchQuery);
+      
+      // Use backend's is_assigned field (more reliable than counting)
+      // Fallback to checking assigned_count if is_assigned not provided
+      const isAssigned = room.is_assigned ?? ((room.assigned_count ?? room.assigned_agents?.length ?? 0) > 0);
+      
+      if (activeTab === 'all') return matchesSearch;
+      if (activeTab === 'unassigned') return matchesSearch && !isAssigned;
+      if (activeTab === 'assigned') return matchesSearch && isAssigned;
+      
+      return matchesSearch;
+    })
+    .sort((a, b) => {
+      // Sort by latest message timestamp (descending - newest first)
+      const timeA = a.last_message_at || a.updated_at || a.created_at || '';
+      const timeB = b.last_message_at || b.updated_at || b.created_at || '';
+      
+      // Convert to timestamps for comparison
+      const dateA = new Date(timeA).getTime();
+      const dateB = new Date(timeB).getTime();
+      
+      // Descending order (newest first)
+      return dateB - dateA;
+    });
 
   const formatLastMessage = (room: Room): string => {
     // Handle string last_message from new API
@@ -186,76 +200,83 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
             <p>No chats found</p>
           </div>
         ) : (
-          filteredRooms.map((room) => {
-            const customerName = room.lead?.name || room.title || 'Unknown';
-            const customerPhone = room.phone || '';
-            const lastMessageText = formatLastMessage(room);
-            const lastMessageTime = room.updated_at; // Use updated_at
-            const unreadCount = room.unread_count || 0;
-            const isAssigned = !!room.leads_id; // Has lead = assigned
-            const leadStatus = room.lead?.leads_status || 'cold';
-          
-            return (
-              <div
-                key={room.id}
-                onClick={() => onRoomSelect(room.id)}
-                className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
-                  selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
-                }`}
-              >
-                <div className="flex items-start space-x-3">
-                  {/* Avatar */}
-                  <div className="flex-shrink-0">
-                    <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
-                      <Users className="h-6 w-6 text-gray-600" />
-                    </div>
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm font-medium text-gray-900 truncate">
-                        {customerName}
-                      </p>
-                      <p className="text-xs text-gray-500">
-                        {formatRelativeTime(lastMessageTime)}
-                      </p>
-                    </div>
-                    
-                    <p className="text-xs text-gray-500 mb-1">{customerPhone}</p>
-                    
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-gray-600 truncate">{lastMessageText}</p>
-                      <div className="flex items-center space-x-1">
-                        {unreadCount > 0 && (
-                          <Badge variant="info" size="sm">
-                            {unreadCount}
-                          </Badge>
-                        )}
+          <>
+            {filteredRooms.map((room) => {
+              const customerName = room.lead?.name || room.title || 'Unknown';
+              const customerPhone = room.phone || '';
+              const lastMessageText = formatLastMessage(room);
+              // Use last_message_at if available, fallback to updated_at, then created_at
+              const lastMessageTime = room.last_message_at || room.updated_at || room.created_at;
+              const unreadCount = room.unread_count || 0;
+              
+              // Use backend's is_assigned field (more reliable)
+              // Fallback to checking assigned_count if is_assigned not provided
+              const isAssigned = room.is_assigned ?? ((room.assigned_count ?? room.assigned_agents?.length ?? 0) > 0);
+              const assignedCount = room.assigned_count ?? room.assigned_agents?.length ?? 0;
+              const leadStatus = room.lead?.leads_status || 'cold';
+            
+              return (
+                <div
+                  key={room.id}
+                  onClick={() => onRoomSelect(room.id)}
+                  className={`p-3 border-b border-gray-100 cursor-pointer hover:bg-gray-50 transition-colors ${
+                    selectedRoomId === room.id ? 'bg-blue-50 border-l-4 border-l-blue-500' : ''
+                  }`}
+                >
+                  <div className="flex items-start space-x-3">
+                    {/* Avatar */}
+                    <div className="flex-shrink-0">
+                      <div className="h-12 w-12 rounded-full bg-gray-300 flex items-center justify-center">
+                        <Users className="h-6 w-6 text-gray-600" />
                       </div>
                     </div>
 
-                    {/* Assignment info */}
-                    <div className="flex items-center justify-between mt-2">
-                      <div className="flex items-center space-x-2">
-                        {isAssigned ? (
-                          <Badge variant="success" size="sm">
-                            Assigned
-                          </Badge>
-                        ) : (
-                          <Badge variant="warning" size="sm">
-                            Unassigned
-                          </Badge>
-                        )}
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm font-medium text-gray-900 truncate">
+                          {customerName}
+                        </p>
+                        <p className="text-xs text-gray-500">
+                          {formatRelativeTime(lastMessageTime)}
+                        </p>
                       </div>
-                      <Badge variant="default" size="sm">
-                        {leadStatus}
-                      </Badge>
+                      
+                      <p className="text-xs text-gray-500 mb-1">{customerPhone}</p>
+                      
+                      <div className="flex items-center justify-between">
+                        <p className="text-sm text-gray-600 truncate">{lastMessageText}</p>
+                        <div className="flex items-center space-x-1">
+                          {unreadCount > 0 && (
+                            <Badge variant="info" size="sm">
+                              {unreadCount}
+                            </Badge>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Assignment info */}
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center space-x-2">
+                          {isAssigned ? (
+                            <Badge variant="success" size="sm">
+                              Assigned ({assignedCount})
+                            </Badge>
+                          ) : (
+                            <Badge variant="warning" size="sm">
+                              Unassigned
+                            </Badge>
+                          )}
+                        </div>
+                        <Badge variant="default" size="sm">
+                          {leadStatus}
+                        </Badge>
+                      </div>
                     </div>
                   </div>
                 </div>
-              </div>
-            );
-          })
+              );
+            })}
+          </>
         )}
       </div>
     </div>

@@ -31,14 +31,20 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
 
   // Fetch leads based on user role
   const fetchLeads = React.useCallback(async () => {
-    if (!user) return;
+    if (!user) {
+      console.log('⚠️ No user found, skipping fetch');
+      return;
+    }
     
     setLoading(true);
     try {
       let result;
       
+      console.log('📋 Fetching leads for user:', { id: user.id, role: user.role });
+      
       if (user.role === 'agent') {
         // Agents only see their own leads
+        console.log('📋 Fetching leads by user ID:', user.id);
         result = await ApiService.getLeadsByUserId(user.id);
       } else {
         // Admin/Supervisor see all leads with optional filters
@@ -49,21 +55,41 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
         if (searchQuery.trim()) {
           filters.search = searchQuery.trim();
         }
+        console.log('📋 Fetching all leads with filters:', filters);
         result = await ApiService.getAllLeads(filters);
       }
       
-      if (result.success) {
-        setLeads(result.data || []);
+      console.log('📋 Fetch leads result:', result);
+      
+      if (result && result.success && result.data) {
+        const leadsData = Array.isArray(result.data) ? result.data : [];
+        console.log('✅ Setting leads:', leadsData.length, 'items');
+        setLeads(leadsData);
       } else {
-        console.error('Failed to fetch leads:', result.message);
+        console.warn('⚠️ Invalid result structure:', result);
         setLeads([]);
       }
     } catch (error: unknown) {
-      console.error('Error fetching leads:', error);
-      if (error instanceof Error && error.message?.includes('401')) {
-        // Token expired, redirect to login
-        window.location.href = '/login';
+      console.error('❌ Error fetching leads:', error);
+      console.error('❌ Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
+      if (error instanceof Error) {
+        if (error.message?.includes('401') || error.message?.includes('Unauthorized')) {
+          console.error('🚨 Unauthorized - redirecting to login');
+          alert('Session expired. Please login again.');
+          window.location.href = '/login';
+        } else if (error.message?.includes('Cannot connect')) {
+          alert('Cannot connect to server. Please check if backend is running on localhost:8080');
+        } else if (error.message?.includes('Expected JSON')) {
+          alert('Server returned invalid response. Please check backend logs.');
+        } else {
+          alert('Failed to fetch leads: ' + error.message);
+        }
       }
+      
       setLeads([]);
     } finally {
       setLoading(false);
@@ -107,15 +133,20 @@ export const LeadsTable: React.FC<LeadsTableProps> = ({
     }
 
     try {
+      console.log('🗑️ Deleting lead:', leadId);
       const result = await ApiService.deleteLead(leadId);
-      if (result.success) {
+      console.log('✅ Delete result:', result);
+      
+      if (result && result.success) {
         setLeads(prev => prev.filter(l => l.id !== leadId));
+        alert('Lead deleted successfully');
       } else {
-        alert('Failed to delete lead: ' + (result.message || 'Unknown error'));
+        throw new Error(result?.message || 'Failed to delete lead');
       }
     } catch (error: unknown) {
-      console.error('Delete lead error:', error);
-      alert('Failed to delete lead: ' + (error instanceof Error ? error.message : 'Network error'));
+      console.error('❌ Delete lead error:', error);
+      const errorMessage = error instanceof Error ? error.message : 'Unknown error';
+      alert('Failed to delete lead: ' + errorMessage);
     }
   };
 

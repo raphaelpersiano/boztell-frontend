@@ -21,8 +21,12 @@ export interface Room {
   updated_at: string;
   // Extended fields from joins
   lead?: Lead;
-  last_message?: Message;
+  last_message?: Message | string; // Can be Message object or string
+  last_message_at?: string; // Timestamp of last message
   unread_count?: number;
+  assigned_agents?: RoomParticipant[]; // Array of assigned agents
+  assigned_count?: number; // Count of assigned agents
+  is_assigned?: boolean; // Backend field: true if room has assigned agents
 }
 
 export interface RoomParticipant {

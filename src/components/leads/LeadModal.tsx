@@ -120,12 +120,14 @@ export const LeadModal: React.FC<LeadModalProps> = ({
     }
 
     setLoading(true);
+    setErrors({}); // Clear previous errors
 
     try {
       let result;
       
       if (isEditing && lead) {
         // Update existing lead
+        console.log('📝 Updating lead:', lead.id, formData);
         result = await ApiService.updateExistingLead(lead.id, {
           name: formData.name.trim(),
           phone: formData.phone.trim(),
@@ -135,8 +137,10 @@ export const LeadModal: React.FC<LeadModalProps> = ({
           contact_status: formData.contact_status,
           utm_id: formData.utm_id || undefined,
         });
+        console.log('✅ Update result:', result);
       } else {
         // Create new lead
+        console.log('📝 Creating new lead:', formData);
         result = await ApiService.createNewLead({
           name: formData.name.trim(),
           phone: formData.phone.trim(),
@@ -146,9 +150,10 @@ export const LeadModal: React.FC<LeadModalProps> = ({
           contact_status: formData.contact_status,
           utm_id: formData.utm_id || undefined,
         });
+        console.log('✅ Create result:', result);
       }
 
-      if (result.success) {
+      if (result.success && result.data) {
         // Convert API response to our Lead type
         const savedLead: Lead = {
           id: result.data.id,
@@ -163,20 +168,37 @@ export const LeadModal: React.FC<LeadModalProps> = ({
           updated_at: result.data.updated_at,
         };
 
+        console.log('✅ Saved lead:', savedLead);
         onSave(savedLead);
         onClose();
       } else {
-        throw new Error(result.message || 'Failed to save lead');
+        console.error('❌ Invalid result:', result);
+        throw new Error('Invalid response from server');
       }
     } catch (error: any) {
-      console.error('Save lead error:', error);
+      console.error('❌ Save lead error:', error);
+      console.error('❌ Error message:', error?.message);
+      console.error('❌ Error details:', {
+        name: error?.name,
+        message: error?.message,
+        stack: error?.stack,
+      });
       
-      if (error.message?.includes('400')) {
+      // Parse error message
+      const errorMessage = error?.message || 'Unknown error';
+      
+      if (errorMessage.includes('400') || errorMessage.includes('Bad Request')) {
         setErrors({ general: 'Invalid data provided. Please check all fields.' });
-      } else if (error.message?.includes('409')) {
+      } else if (errorMessage.includes('409') || errorMessage.includes('Conflict') || errorMessage.includes('already exists')) {
         setErrors({ phone: 'A lead with this phone number already exists.' });
+      } else if (errorMessage.includes('404') || errorMessage.includes('Not Found')) {
+        setErrors({ general: 'Lead not found. It may have been deleted.' });
+      } else if (errorMessage.includes('Cannot connect') || errorMessage.includes('fetch')) {
+        setErrors({ general: 'Cannot connect to server. Please check if backend is running.' });
+      } else if (errorMessage.includes('Expected JSON')) {
+        setErrors({ general: 'Server returned invalid response. Please check backend logs.' });
       } else {
-        setErrors({ general: error.message || 'Failed to save lead. Please try again.' });
+        setErrors({ general: errorMessage });
       }
     } finally {
       setLoading(false);

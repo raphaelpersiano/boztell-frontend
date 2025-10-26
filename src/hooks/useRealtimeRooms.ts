@@ -24,6 +24,7 @@ export interface Room {
   last_message?: string;
   last_message_at?: string;
   unread_count?: number;
+  is_assigned?: boolean; // Backend field: true if room has assigned agents
 }
 
 interface UseRealtimeRoomsProps {
@@ -182,6 +183,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         last_message: undefined,
         last_message_at: newRoom.created_at,
         unread_count: 0,
+        is_assigned: false, // New room is always unassigned initially
       };
       
       setRooms(prev => {
@@ -284,8 +286,8 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           const exists = prev.some(r => r.room_id === data.room_id);
           
           if (exists) {
-            console.log('ℹ️ Room already in list, updating participants');
-            // Just update participants
+            console.log('ℹ️ Room already in list, updating participants and is_assigned');
+            // Just update participants and is_assigned
             return prev.map(room => {
               if (room.room_id === data.room_id) {
                 const participants = room.participants || [];
@@ -294,6 +296,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
                 if (!agentExists) {
                   return {
                     ...room,
+                    is_assigned: true,
                     participants: [
                       ...participants,
                       {
@@ -304,6 +307,11 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
                     ],
                   };
                 }
+                // Agent already exists, just update is_assigned
+                return {
+                  ...room,
+                  is_assigned: true,
+                };
               }
               return room;
             });
@@ -318,6 +326,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
               room_title: data.room.title,
               room_created_at: data.room.created_at,
               room_updated_at: data.room.updated_at,
+              is_assigned: true, // Room is assigned (agent just got assigned)
               participants: [{
                 user_id: data.agent_id,
                 name: data.agent_name,
@@ -351,7 +360,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           });
         }
       } else {
-        // Not this agent, just update participants for admin/supervisor view
+        // Not this agent, just update participants and is_assigned for admin/supervisor view
         setRooms(prev => prev.map(room => {
           if (room.room_id === data.room_id) {
             const participants = room.participants || [];
@@ -360,6 +369,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
             if (!agentExists) {
               return {
                 ...room,
+                is_assigned: true,
                 participants: [
                   ...participants,
                   {
@@ -370,6 +380,11 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
                 ],
               };
             }
+            // Agent already exists, just update is_assigned
+            return {
+              ...room,
+              is_assigned: true,
+            };
           }
           return room;
         }));
@@ -404,12 +419,14 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           });
         }
       } else {
-        // Not this agent, just update participants for admin/supervisor view
+        // Not this agent, just update participants and is_assigned for admin/supervisor view
         setRooms(prev => prev.map(room => {
           if (room.room_id === data.room_id) {
+            const updatedParticipants = (room.participants || []).filter(p => p.user_id !== data.agent_id);
             return {
               ...room,
-              participants: (room.participants || []).filter(p => p.user_id !== data.agent_id),
+              is_assigned: updatedParticipants.length > 0,
+              participants: updatedParticipants,
             };
           }
           return room;

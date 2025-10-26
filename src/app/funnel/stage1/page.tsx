@@ -7,7 +7,8 @@ import { ProtectedRoute } from '@/components/ProtectedRoute';
 import { Lead, LeadStatus } from '@/types';
 import { STAGE_1_STATUSES } from '@/lib/constants';
 import { useAuth } from '@/context/AuthContext';
-import { Filter } from 'lucide-react';
+import { ApiService } from '@/lib/api';
+import { Filter, Loader2 } from 'lucide-react';
 
 // Mock data (same as leads page but filtered for stage 1)
 const mockLeads: Lead[] = [
@@ -94,60 +95,107 @@ const stage1Columns = [
 
 export default function FunnelStage1Page() {
   const { user } = useAuth();
+  const [leads, setLeads] = React.useState<Lead[]>([]);
+  const [loading, setLoading] = React.useState(true);
   const [selectedAgent, setSelectedAgent] = React.useState<string>('all');
-  
-  // Get all leads for stage 1
-  const allStage1Leads = React.useMemo(() => 
-    mockLeads.filter(lead => (STAGE_1_STATUSES as readonly string[]).includes(lead.leads_status || '')),
-    []
-  );
 
-  // Get unique agents from leads (Note: Lead interface doesn't have assignedTo field anymore)
-  const agents: string[] = [];
+  // Fetch leads from backend
+  const fetchLeads = React.useCallback(async () => {
+    if (!user) return;
 
-  // Filter leads based on user role and selected agent
-  const filteredLeads = React.useMemo(() => {
-    const leads = allStage1Leads;
+    setLoading(true);
+    try {
+      const result = await ApiService.getLeadsWithRoleAccess({
+        user_id: user.id,
+        user_role: user.role as 'admin' | 'supervisor' | 'agent',
+        page: 1,
+        limit: 200, // Get all leads for kanban view
+      });
 
-    // Note: Lead interface no longer has assignedTo field
-    // Filtering by agent is disabled for now
-    // if (user?.role === 'agent') {
-    //   leads = leads.filter(lead => lead.assignedTo === user.name);
-    // } else {
-    //   if (selectedAgent !== 'all') {
-    //     leads = leads.filter(lead => lead.assignedTo === selectedAgent);
-    //   }
-    // }
+      if (result.success) {
+        // Filter only stage 1 leads (cold, warm, hot, paid)
+        const stage1Leads = (result.data || []).filter((lead: Lead) =>
+          (STAGE_1_STATUSES as readonly string[]).includes(lead.leads_status || '')
+        );
+        setLeads(stage1Leads);
+        console.log('✅ Stage 1 leads loaded:', stage1Leads.length);
+      } else {
+        console.error('❌ Failed to load leads:', result.message);
+        setLeads([]);
+      }
+    } catch (error) {
+      console.error('❌ Error fetching leads:', error);
+      setLeads([]);
+    } finally {
+      setLoading(false);
+    }
+  }, [user]);
 
-    return leads;
-  }, [allStage1Leads, user, selectedAgent]);
-
-  const [leads, setLeads] = React.useState<Lead[]>(filteredLeads);
-
-  // Update leads when filtered leads change
+  // Fetch on mount
   React.useEffect(() => {
-    setLeads(filteredLeads);
-  }, [filteredLeads]);
+    fetchLeads();
+  }, [fetchLeads]);
 
   const handleLeadClick = (lead: Lead) => {
     console.log('Lead clicked:', lead);
-    // Here you would typically open lead detail modal or navigate to detail page
+    // TODO: Open lead detail modal or navigate to detail page
   };
 
-  const handleStatusChange = (leadId: string, newStatus: LeadStatus) => {
+  const handleStatusChange = async (leadId: string, newStatus: LeadStatus) => {
+    // Optimistic UI update
+    const previousLeads = [...leads];
     setLeads(prev => 
       prev.map(lead => 
         lead.id === leadId 
-          ? { ...lead, status: newStatus, updatedAt: new Date() }
+          ? { ...lead, leads_status: newStatus, updated_at: new Date().toISOString() }
           : lead
       )
     );
+
+    // Update backend
+    try {
+      const result = await ApiService.updateLeadStatus(
+        leadId,
+        newStatus,
+        user?.id,
+        user?.name
+      );
+
+      if (!result.success) {
+        // Rollback on error
+        console.error('❌ Failed to update lead status, rolling back');
+        setLeads(previousLeads);
+        alert('Failed to update lead status. Please try again.');
+      } else {
+        console.log('✅ Lead status updated successfully');
+      }
+    } catch (error) {
+      console.error('❌ Error updating lead status:', error);
+      setLeads(previousLeads);
+      alert('Failed to update lead status. Please try again.');
+    }
   };
 
   const handleCreateLead = () => {
     console.log('Create new lead');
     // Here you would open create modal
   };
+
+  // Show loading state
+  if (loading) {
+    return (
+      <ProtectedRoute>
+        <Layout>
+          <div className="h-full flex items-center justify-center">
+            <div className="text-center">
+              <Loader2 className="h-8 w-8 animate-spin text-blue-600 mx-auto mb-4" />
+              <p className="text-gray-600">Loading leads...</p>
+            </div>
+          </div>
+        </Layout>
+      </ProtectedRoute>
+    );
+  }
 
   return (
     <ProtectedRoute>
@@ -159,31 +207,19 @@ export default function FunnelStage1Page() {
               <p className="text-gray-600">Manage leads from initial contact to payment</p>
             </div>
             <div className="flex items-center space-x-4">
-              {/* Agent Filter - Only show for Admin/Supervisor */}
-              {user && (user.role === 'admin' || user.role === 'supervisor') && (
-                <div className="flex items-center space-x-2">
-                  <Filter className="h-4 w-4 text-gray-500" />
-                  <select
-                    value={selectedAgent}
-                    onChange={(e) => setSelectedAgent(e.target.value)}
-                    className="px-3 py-1 border border-gray-300 rounded-md text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  >
-                    <option value="all">All Agents</option>
-                    {agents.map(agent => (
-                      <option key={agent} value={agent}>{agent}</option>
-                    ))}
-                  </select>
-                </div>
-              )}
-              
               <div className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
                 Total: {leads.length} leads
               </div>
               
-              {/* Show current filter for agents */}
+              {/* Show role-based access info */}
               {user?.role === 'agent' && (
                 <div className="px-3 py-1 bg-gray-100 text-gray-700 rounded-full text-sm">
-                  Showing: {user.name}'s leads
+                  Showing: Assigned leads only
+                </div>
+              )}
+              {(user?.role === 'admin' || user?.role === 'supervisor') && (
+                <div className="px-3 py-1 bg-green-100 text-green-700 rounded-full text-sm">
+                  Showing: All leads
                 </div>
               )}
             </div>

@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { X, Save, Search, Plus } from 'lucide-react';
+import { X } from 'lucide-react';
 import { Button } from '../ui/Button';
 import { Input } from '../ui/Input';
 import { ApiService } from '@/lib/api';
@@ -24,10 +24,8 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
   onSave,
   refreshing = false,
 }) => {
-  const [mode, setMode] = useState<'view' | 'create' | 'edit' | 'search'>('view');
+  const [mode, setMode] = useState<'view' | 'create' | 'edit'>('view');
   const [loading, setLoading] = useState(false);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [searchResults, setSearchResults] = useState<Lead[]>([]);
   
   // Form state
   const [formData, setFormData] = useState({
@@ -56,31 +54,11 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
       // Room has leads_id but lead not loaded yet - show view mode
       setMode('view');
     } else {
-      // No lead connected - show create/search mode
+      // No lead connected - show create mode
       setMode('create');
     }
     setRoomTitle(room?.title || '');
   }, [room]);
-
-  const handleSearch = async () => {
-    if (!searchQuery.trim()) return;
-    
-    setLoading(true);
-    try {
-      const result = await ApiService.getLeadsByPhone(searchQuery);
-      if (result.success) {
-        setSearchResults(result.data || []);
-      } else {
-        setSearchResults([]);
-      }
-      setMode('search');
-    } catch (error) {
-      console.error('Search error:', error);
-      setSearchResults([]);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   const handleCreateLead = async () => {
     setLoading(true);
@@ -88,17 +66,15 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
       const result = await ApiService.createNewLead(formData);
       
       if (result.success) {
-        // Link lead to room
+        // Link lead to room (without updating room title)
         const roomResult = await ApiService.updateRoom(roomId, {
           leads_id: result.data.id,
-          title: roomTitle || formData.name,
         });
 
         if (roomResult.success) {
-          onSave({ lead: result.data, roomTitle });
+          onSave({ lead: result.data });
           onClose();
-          // Force refresh the room data after successful update
-          console.log('✅ Lead created and room updated successfully');
+          console.log('✅ Lead created and linked to room successfully');
         } else {
           throw new Error(roomResult.message || 'Failed to link lead to room');
         }
@@ -121,7 +97,7 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
       const result = await ApiService.updateExistingLead(room.leads_id, formData);
       
       if (result.success) {
-        // Update room title if changed
+        // Update room title separately if changed
         if (roomTitle !== room.title) {
           const roomResult = await ApiService.updateRoom(roomId, { title: roomTitle });
           if (!roomResult.success) {
@@ -130,7 +106,7 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
         }
 
         onSave({ lead: result.data, roomTitle });
-        onClose();
+        setMode('view');
         console.log('✅ Lead updated successfully');
       } else {
         throw new Error(result.message || 'Update failed');
@@ -138,46 +114,6 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
     } catch (error) {
       console.error('Update lead error:', error);
       alert('Failed to update lead: ' + (error instanceof Error ? error.message : 'Network error'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleLinkExistingLead = async (lead: Lead) => {
-    setLoading(true);
-    try {
-      const result = await ApiService.updateRoom(roomId, {
-        leads_id: lead.id,
-        title: roomTitle || lead.name || undefined,
-      });
-
-      if (result.success) {
-        onSave({ lead, roomTitle: roomTitle || lead.name || undefined });
-        onClose();
-      } else {
-        throw new Error(result.message || 'Failed to link lead');
-      }
-    } catch (error) {
-      console.error('Link lead error:', error);
-      alert('Failed to link lead: ' + (error instanceof Error ? error.message : 'Network error'));
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUpdateRoomTitle = async () => {
-    setLoading(true);
-    try {
-      const result = await ApiService.updateRoom(roomId, { title: roomTitle });
-      if (result.success) {
-        onSave({ roomTitle });
-        onClose();
-      } else {
-        throw new Error(result.message || 'Failed to update room title');
-      }
-    } catch (error) {
-      console.error('Update room title error:', error);
-      alert('Failed to update room title: ' + (error instanceof Error ? error.message : 'Network error'));
     } finally {
       setLoading(false);
     }
@@ -195,7 +131,6 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
               {mode === 'view' && 'Lead Information'}
               {mode === 'create' && 'Create New Lead'}
               {mode === 'edit' && 'Edit Lead'}
-              {mode === 'search' && 'Search Existing Lead'}
             </h2>
             {refreshing && (
               <div className="animate-spin h-4 w-4 border-2 border-blue-500 border-t-transparent rounded-full" />
@@ -208,63 +143,21 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
 
         {/* Content */}
         <div className="flex-1 overflow-y-auto p-4">
-          {/* Room Title */}
-          <div className="mb-6">
-            <label className="block text-sm font-medium text-gray-700 mb-2">
-              Room Title
-            </label>
-            <Input
-              value={roomTitle}
-              onChange={(e) => setRoomTitle(e.target.value)}
-              placeholder="e.g., Nomor Pribadi, Nomor Kantor"
-            />
-            <p className="text-xs text-gray-500 mt-1">
-              Label untuk mengidentifikasi nomor ini
-            </p>
-          </div>
-
-          {/* Search Existing Lead - only show if room has NO leads_id */}
-          {!room?.leads_id && mode === 'create' && (
+          {/* Room Title - Only show when viewing/editing existing lead */}
+          {(mode === 'view' || mode === 'edit') && (
             <div className="mb-6">
-              <div className="flex gap-2 mb-4">
-                <Input
-                  value={searchQuery}
-                  onChange={(e) => setSearchQuery(e.target.value)}
-                  placeholder="Search by phone number"
-                  onKeyPress={(e) => e.key === 'Enter' && handleSearch()}
-                />
-                <Button onClick={handleSearch} disabled={loading}>
-                  <Search className="h-4 w-4" />
-                </Button>
-              </div>
-
-              {searchResults.length > 0 && (
-                <div className="space-y-2">
-                  <p className="text-sm font-medium text-gray-700">Search Results:</p>
-                  {searchResults.map((lead) => (
-                    <div
-                      key={lead.id}
-                      className="p-3 border border-gray-200 rounded-lg hover:border-blue-500 cursor-pointer"
-                      onClick={() => handleLinkExistingLead(lead)}
-                    >
-                      <p className="font-medium text-gray-900">{lead.name}</p>
-                      <p className="text-sm text-gray-600">{lead.phone}</p>
-                      <p className="text-xs text-gray-500">
-                        {lead.loan_type} - Rp{lead.outstanding?.toLocaleString()}
-                      </p>
-                    </div>
-                  ))}
-                </div>
-              )}
-
-              <div className="relative my-4">
-                <div className="absolute inset-0 flex items-center">
-                  <div className="w-full border-t border-gray-300" />
-                </div>
-                <div className="relative flex justify-center text-sm">
-                  <span className="px-2 bg-white text-gray-500">Or create new lead</span>
-                </div>
-              </div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">
+                Room Title
+              </label>
+              <Input
+                value={roomTitle}
+                onChange={(e) => setRoomTitle(e.target.value)}
+                placeholder="e.g., Nomor Pribadi, Nomor Kantor"
+                disabled={mode === 'view'}
+              />
+              <p className="text-xs text-gray-500 mt-1">
+                Label untuk mengidentifikasi nomor ini
+              </p>
             </div>
           )}
 
@@ -309,7 +202,7 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
 
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-2">
-                Loan Type
+                Loan Type *
               </label>
               <Input
                 value={formData.loan_type}
@@ -356,35 +249,23 @@ export const LeadManagementPopup: React.FC<LeadManagementPopupProps> = ({
         {/* Footer */}
         <div className="p-4 border-t border-gray-200 space-y-2">
           {mode === 'view' && (
-            <>
-              <Button
-                variant="primary"
-                className="w-full"
-                onClick={() => setMode('edit')}
-              >
-                Edit Lead Information
-              </Button>
-              {roomTitle !== room?.title && (
-                <Button
-                  variant="secondary"
-                  className="w-full"
-                  onClick={handleUpdateRoomTitle}
-                  disabled={loading}
-                >
-                  Update Room Title Only
-                </Button>
-              )}
-            </>
+            <Button
+              variant="primary"
+              className="w-full"
+              onClick={() => setMode('edit')}
+            >
+              Edit Lead Information
+            </Button>
           )}
 
-          {mode === 'create' && !room?.leads_id && (
+          {mode === 'create' && (
             <Button
               variant="primary"
               className="w-full"
               onClick={handleCreateLead}
-              disabled={loading || !formData.name || !formData.phone}
+              disabled={loading || !formData.name || !formData.phone || !formData.loan_type}
             >
-              {loading ? 'Creating...' : 'Create Lead & Link'}
+              {loading ? 'Creating...' : 'Create Lead'}
             </Button>
           )}
 

@@ -104,6 +104,10 @@ export default function ChatPage() {
       lead: room.leads_info,
       leads_id: room.leads_info?.id || null,
       participants: room.participants,
+      // Use backend's is_assigned field (more reliable than counting participants)
+      is_assigned: room.is_assigned,
+      assigned_count: room.participants?.length || 0,
+      assigned_agents: room.participants,
     })) as any[]; // Use any[] temporarily to bypass type check
   }, [rooms]);
 

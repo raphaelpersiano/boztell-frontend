@@ -61,13 +61,35 @@ export class ApiService {
       
       // Check if response is JSON
       const contentType = response.headers.get('content-type');
+      console.log('📡 Content-Type:', contentType);
+      
       if (!contentType || !contentType.includes('application/json')) {
         const text = await response.text();
         console.error('❌ Non-JSON Response:', text);
-        throw new Error(`Expected JSON response, got ${contentType}. Response: ${text}`);
+        console.error('❌ Response Status:', response.status);
+        console.error('❌ Content-Type:', contentType);
+        throw new Error(`Expected JSON response, got ${contentType || 'unknown'}. Status: ${response.status}. Response: ${text.substring(0, 200)}`);
       }
 
-      const data = await response.json();
+      // Read response body as text first to handle empty responses
+      const responseText = await response.text();
+      console.log('📡 Response Text:', responseText);
+      
+      // Try to parse JSON
+      let data;
+      if (responseText.trim() === '') {
+        console.warn('⚠️ Empty response body, using default object');
+        data = {};
+      } else {
+        try {
+          data = JSON.parse(responseText);
+        } catch (parseError) {
+          console.error('❌ JSON Parse Error:', parseError);
+          console.error('❌ Raw response:', responseText);
+          throw new Error(`Invalid JSON response: ${parseError instanceof Error ? parseError.message : 'Unknown parse error'}`);
+        }
+      }
+      
       console.log('📊 Response Data:', data);
 
       if (!response.ok) {
@@ -76,7 +98,10 @@ export class ApiService {
         console.error('❌ Response StatusText:', response.statusText);
         console.error('❌ Full Response Data:', JSON.stringify(data, null, 2));
         console.error('❌ Request Details:', { url, method: config.method, headers: config.headers, body: config.body });
-        throw new Error(data.error || data.message || `HTTP ${response.status}: ${response.statusText}`);
+        
+        // Extract error message from various formats
+        const errorMsg = data.error || data.message || data.msg || `HTTP ${response.status}: ${response.statusText}`;
+        throw new Error(errorMsg);
       }
 
       console.log('✅ API Request Success');
@@ -494,9 +519,22 @@ export class ApiService {
       }
     });
 
-    return this.request(`/leads?${queryParams}`, {
-      method: 'GET',
-    });
+    const queryString = queryParams.toString();
+    const url = `/leads${queryString ? `?${queryString}` : ''}`;
+    
+    console.log('📋 Fetching all leads with URL:', url);
+    console.log('📋 Filters:', filters);
+
+    try {
+      const response = await this.request(url, {
+        method: 'GET',
+      });
+      console.log('✅ Get all leads response:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Get all leads error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -504,9 +542,17 @@ export class ApiService {
    * Note: This endpoint does NOT require authentication
    */
   static async getLeadsByUserId(userId: string): Promise<any> {
-    return this.request(`/leads/user/${userId}`, {
-      method: 'GET',
-    });
+    console.log('📋 Fetching leads for user:', userId);
+    try {
+      const response = await this.request(`/leads/user/${userId}`, {
+        method: 'GET',
+      });
+      console.log('✅ Get leads by user response:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Get leads by user error:', error);
+      throw error;
+    }
   }
 
   /**
@@ -523,18 +569,26 @@ export class ApiService {
   }): Promise<any> {
     try {
       console.log('🔄 Creating new lead:', data);
+      console.log('🔄 Full URL:', `${this.baseUrl}/leads`);
+      console.log('🔄 Request body:', JSON.stringify(data, null, 2));
+      
       const response = await this.request('/leads', {
         method: 'POST',
         body: JSON.stringify(data),
       });
+      
       console.log('✅ Lead created successfully:', response);
       return { success: true, data: response };
     } catch (error) {
       console.error('❌ Create lead error:', error);
-      return { 
-        success: false, 
-        message: error instanceof Error ? error.message : 'Failed to create lead'
-      };
+      console.error('❌ Error type:', typeof error);
+      console.error('❌ Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
+      // Re-throw the error instead of returning success: false
+      throw error;
     }
   }
 
@@ -552,29 +606,107 @@ export class ApiService {
   }): Promise<any> {
     try {
       console.log('🔄 Updating lead:', leadId, data);
+      console.log('🔄 Full URL:', `${this.baseUrl}/leads/${leadId}`);
+      console.log('🔄 Request body:', JSON.stringify(data, null, 2));
+      
       const response = await this.request(`/leads/${leadId}`, {
         method: 'PUT',
         body: JSON.stringify(data),
       });
+      
       console.log('✅ Lead updated successfully:', response);
       return { success: true, data: response };
     } catch (error) {
       console.error('❌ Update lead error:', error);
+      console.error('❌ Error type:', typeof error);
+      console.error('❌ Error details:', {
+        message: error instanceof Error ? error.message : String(error),
+        stack: error instanceof Error ? error.stack : undefined,
+      });
+      
+      // Re-throw the error instead of returning success: false
+      // This allows the caller to handle the error properly
+      throw error;
+    }
+  }
+
+  /**
+   * Update lead status (for Kanban drag & drop)
+   * Endpoint: PATCH /api/leads/:id/status
+   */
+  static async updateLeadStatus(
+    leadId: string, 
+    newStatus: string,
+    userId?: string,
+    userName?: string
+  ): Promise<any> {
+    try {
+      console.log('🔄 Updating lead status:', { leadId, newStatus, userId, userName });
+      
+      const requestBody: any = { leads_status: newStatus };
+      if (userId) requestBody.user_id = userId;
+      if (userName) requestBody.user_name = userName;
+      
+      const response = await this.request(`/leads/${leadId}/status`, {
+        method: 'PATCH',
+        body: JSON.stringify(requestBody),
+      });
+      
+      console.log('✅ Lead status updated successfully:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Update lead status error:', error);
       return { 
         success: false, 
-        message: error instanceof Error ? error.message : 'Failed to update lead'
+        message: error instanceof Error ? error.message : 'Failed to update lead status'
       };
     }
   }
 
   /**
-   * Update lead status only
+   * Get all leads with role-based access control
+   * Endpoint: GET /api/leads
    */
-  static async updateLeadStatusOnly(leadId: string, status: string): Promise<any> {
-    return this.request(`/leads/${leadId}/status`, {
-      method: 'PATCH',
-      body: JSON.stringify({ leads_status: status }),
-    });
+  static async getLeadsWithRoleAccess(params: {
+    user_id: string;
+    user_role: 'admin' | 'supervisor' | 'agent';
+    leads_status?: string;
+    contact_status?: string;
+    loan_type?: string;
+    utm_id?: string;
+    search?: string;
+    page?: number;
+    limit?: number;
+  }): Promise<any> {
+    try {
+      const queryParams = new URLSearchParams();
+      Object.entries(params).forEach(([key, value]) => {
+        if (value !== undefined && value !== null && value !== '') {
+          queryParams.append(key, value.toString());
+        }
+      });
+
+      const url = `/leads?${queryParams.toString()}`;
+      console.log('📋 Fetching leads with role-based access:', url);
+      
+      const response = await this.request<any>(url, {
+        method: 'GET',
+      });
+      
+      console.log('✅ Get leads response:', response);
+      return { 
+        success: true, 
+        data: (response as any).data || response, 
+        meta: (response as any).meta 
+      };
+    } catch (error) {
+      console.error('❌ Get leads error:', error);
+      return { 
+        success: false, 
+        data: [],
+        message: error instanceof Error ? error.message : 'Failed to fetch leads'
+      };
+    }
   }
 
   /**
@@ -591,9 +723,17 @@ export class ApiService {
    * Delete lead
    */
   static async deleteLead(leadId: string): Promise<any> {
-    return this.request(`/leads/${leadId}`, {
-      method: 'DELETE',
-    });
+    try {
+      console.log('🗑️ Deleting lead:', leadId);
+      const response = await this.request(`/leads/${leadId}`, {
+        method: 'DELETE',
+      });
+      console.log('✅ Lead deleted successfully:', response);
+      return { success: true, data: response };
+    } catch (error) {
+      console.error('❌ Delete lead error:', error);
+      throw error;
+    }
   }
 
   /**

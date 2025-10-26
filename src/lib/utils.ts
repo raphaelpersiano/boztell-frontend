@@ -36,8 +36,17 @@ export const formatDate = (date: Date): string => {
   }).format(date);
 };
 
-export const formatRelativeTime = (date: Date | string): string => {
+export const formatRelativeTime = (date: Date | string | null | undefined): string => {
+  // Handle null/undefined
+  if (!date) return 'Unknown';
+  
   const dateObj = typeof date === 'string' ? new Date(date) : date;
+  
+  // Check if date is valid
+  if (isNaN(dateObj.getTime())) {
+    console.warn('Invalid date passed to formatRelativeTime:', date);
+    return 'Unknown';
+  }
   
   // To avoid hydration mismatch, we need to handle this on client-side only
   // Return ISO string on server, format on client
