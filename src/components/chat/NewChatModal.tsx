@@ -19,6 +19,8 @@ interface NewChatModalProps {
   onClose: () => void;
   onSuccess: (roomId: string) => void;
   userId: string;
+  prefilledPhone?: string; // Optional: Pre-fill phone number for existing rooms
+  currentRoomId?: string; // Optional: Current room ID for updating existing room
 }
 
 export const NewChatModal: React.FC<NewChatModalProps> = ({
@@ -26,6 +28,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   onClose,
   onSuccess,
   userId,
+  prefilledPhone,
+  currentRoomId,
 }) => {
   const [step, setStep] = useState<'phone' | 'template'>('phone');
   const [phoneNumber, setPhoneNumber] = useState('');
@@ -35,12 +39,21 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
   const [loading, setLoading] = useState(false);
   const [sending, setSending] = useState(false);
 
-  // Fetch templates when modal opens
+  // Reset atau pre-fill phone number when modal opens
   useEffect(() => {
     if (isOpen) {
+      if (prefilledPhone) {
+        // Pre-fill phone for existing room (from ChatWindow)
+        setPhoneNumber(prefilledPhone);
+        setStep('template'); // Skip phone input, go directly to template selection
+      } else {
+        // Reset phone for new chat (from ChatSidebar)
+        setPhoneNumber('');
+        setStep('phone');
+      }
       fetchTemplates();
     }
-  }, [isOpen]);
+  }, [isOpen, prefilledPhone]);
 
   const fetchTemplates = async () => {
     setLoading(true);
@@ -118,6 +131,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     setSending(true);
 
     try {
+      console.log('📤 Sending template message...', {
+        to: phoneNumber,
+        templateName: selectedTemplate.name,
+        currentRoomId,
+        hasCurrentRoom: !!currentRoomId,
+      });
+      
       // Send template message via API
       const response = await ApiService.sendTemplate({
         to: phoneNumber,
@@ -127,22 +147,29 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         user_id: userId,
       });
 
+      console.log('✅ Template sent successfully:', response);
+      
       // Extract room_id from response
       // Backend returns: { success, database_saved: { room_id, message_id, whatsapp_message_id } }
-      const roomId = response.database_saved?.room_id;
+      const roomId = response.database_saved?.room_id || currentRoomId;
       
       if (roomId) {
-        // Auto-select the new room
+        console.log('🎯 Room ID received:', roomId);
+        // Auto-select the room
         onSuccess(roomId);
       } else {
+        console.log('ℹ️ No room ID, room will appear via realtime');
         // Fallback: room will appear in list via realtime subscription
         onSuccess('');
       }
       
-      // Note: Room list will refresh automatically via Supabase realtime subscription
-      // No need for window.location.reload() 🎉
+      // Note: 
+      // - For NEW room: Room will be added via 'new_room' socket event
+      // - For EXISTING room: Room will be updated via 'new_message' socket event
+      // - Both events trigger automatic UI update in useRealtimeRooms hook
+      // - The parent component also calls refetchRooms() for additional sync
     } catch (error: any) {
-      console.error('Error sending template:', error);
+      console.error('❌ Error sending template:', error);
       
       if (error.message?.includes('fetch') || error.message?.includes('network') || error.message?.includes('connect')) {
         alert('Cannot send template: Backend API is not running. Please start the Express.js backend server at localhost:8080');
@@ -170,6 +197,11 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     setTemplates([]);
   };
 
+  const handleClose = () => {
+    handleReset();
+    onClose();
+  };
+
   if (!isOpen) return null;
 
   return (
@@ -186,10 +218,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
           <Button 
             variant="ghost" 
             size="sm" 
-            onClick={() => {
-              handleReset();
-              onClose();
-            }}
+            onClick={handleClose}
           >
             <X className="h-5 w-5" />
           </Button>
@@ -354,7 +383,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         <div className="p-4 border-t border-gray-200 flex items-center justify-between">
           {step === 'phone' ? (
             <>
-              <Button variant="secondary" onClick={onClose}>
+              <Button variant="secondary" onClick={handleClose}>
                 Cancel
               </Button>
               <Button
@@ -367,8 +396,8 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
             </>
           ) : (
             <>
-              <Button variant="secondary" onClick={handleBack}>
-                Back
+              <Button variant="secondary" onClick={prefilledPhone ? handleClose : handleBack}>
+                {prefilledPhone ? 'Cancel' : 'Back'}
               </Button>
               <Button
                 variant="primary"

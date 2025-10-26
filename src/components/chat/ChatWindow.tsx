@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Phone, Video, Info, Paperclip, Send, Smile, MapPin, User, Users, FileText, Download, Play, Volume2, Contact2, Reply, Image as ImageIcon, Film, Mic, FileIcon, Square, Trash2 } from 'lucide-react';
+import { X, Phone, Video, Info, Paperclip, Send, Smile, MapPin, User, Users, FileText, Download, Play, Volume2, Contact2, Reply, Image as ImageIcon, Film, Mic, FileIcon, Square, Trash2, MessageSquare } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { ApiService } from '@/lib/api';
 import { Message } from '@/types';
@@ -47,7 +47,9 @@ interface ChatWindowProps {
   userId: string;
   customerPhone?: string;
   roomTitle?: string;
+  lastMessageAt?: string;
   onShowLeadPopup?: () => void;
+  onShowTemplateModal?: () => void;
   onClose?: () => void;
 }
 
@@ -56,7 +58,9 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   userId,
   customerPhone,
   roomTitle,
+  lastMessageAt,
   onShowLeadPopup,
+  onShowTemplateModal,
   onClose,
 }) => {
   const [inputMessage, setInputMessage] = useState('');
@@ -219,6 +223,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       return;
     }
 
+    // Block if 24-hour window expired
+    if (is24HourWindowExpired) {
+      alert('Cannot send message: 24-hour messaging window has expired. Please use a template message.');
+      return;
+    }
+
     const messageText = inputMessage.trim();
     const tempId = `temp-${Date.now()}`;
     
@@ -289,6 +299,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
   const handleFileSelect = async (fileType: 'image' | 'video' | 'document' | 'audio') => {
     setShowAttachmentMenu(false);
+    
+    // Block if 24-hour window expired
+    if (is24HourWindowExpired) {
+      alert('Cannot send media: 24-hour messaging window has expired. Please use a template message.');
+      return;
+    }
     
     const acceptTypes: Record<string, string> = {
       image: 'image/jpeg,image/png,image/webp',
@@ -388,6 +404,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const handleSendLocation = async () => {
     setShowAttachmentMenu(false);
     
+    // Block if 24-hour window expired
+    if (is24HourWindowExpired) {
+      alert('Cannot send location: 24-hour messaging window has expired. Please use a template message.');
+      return;
+    }
+    
     if (!customerPhone) {
       alert('Cannot send location: Customer phone number not available');
       return;
@@ -431,6 +453,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const handleSendContact = async () => {
     setShowAttachmentMenu(false);
     
+    // Block if 24-hour window expired
+    if (is24HourWindowExpired) {
+      alert('Cannot send contact: 24-hour messaging window has expired. Please use a template message.');
+      return;
+    }
+    
     if (!customerPhone) {
       alert('Cannot send contact: Customer phone number not available');
       return;
@@ -471,6 +499,12 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   const startVoiceRecording = async () => {
     if (!customerPhone) {
       alert('Cannot record: Customer phone number not available');
+      return;
+    }
+
+    // Block if 24-hour window expired
+    if (is24HourWindowExpired) {
+      alert('Cannot send voice note: 24-hour messaging window has expired. Please use a template message.');
       return;
     }
 
@@ -629,6 +663,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       }
     };
   }, []);
+
+  // Check if 24-hour window has passed (WhatsApp Business limitation)
+  const is24HourWindowExpired = React.useMemo(() => {
+    if (!lastMessageAt) return false;
+    
+    const lastMessageTime = new Date(lastMessageAt).getTime();
+    const now = Date.now();
+    const hoursDiff = (now - lastMessageTime) / (1000 * 60 * 60);
+    
+    return hoursDiff > 24;
+  }, [lastMessageAt]);
 
   const getMessageStatusIcon = (message: Message): string => {
     const isOptimistic = message.id.startsWith('temp-');
@@ -1403,6 +1448,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         </div>
 
         <div className="flex items-center space-x-2">
+          {onShowTemplateModal && (
+            <Button 
+              variant="ghost" 
+              size="sm" 
+              onClick={onShowTemplateModal}
+              title="Send Template Message"
+              className="text-blue-600 hover:text-blue-700 hover:bg-blue-50"
+            >
+              <MessageSquare className="h-5 w-5" />
+            </Button>
+          )}
+          
           <QuickRoomAssignment 
             roomId={roomId}
             onAssignmentChange={() => {
@@ -1480,6 +1537,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
       {/* Input */}
       <div className="bg-white border-t border-gray-200 px-4 py-3">
+        {/* 24-Hour Window Expired Warning */}
+        {is24HourWindowExpired && (
+          <div className="mb-3 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start space-x-2">
+            <Info className="h-5 w-5 text-amber-600 flex-shrink-0 mt-0.5" />
+            <div className="flex-1">
+              <p className="text-sm font-medium text-amber-900">
+                24-hour messaging window expired
+              </p>
+              <p className="text-xs text-amber-700 mt-1">
+                You can only send approved template messages. Regular messages, media, and voice notes are disabled.
+              </p>
+            </div>
+          </div>
+        )}
+
         {isRecording ? (
           /* Voice Recording UI */
           <div className="flex items-center space-x-3 py-2">
@@ -1532,11 +1604,11 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             <div className="relative">
               <Button
                 onClick={() => setShowAttachmentMenu(!showAttachmentMenu)}
-                disabled={sending || !isConnected}
+                disabled={sending || !isConnected || is24HourWindowExpired}
                 variant="outline"
                 size="sm"
                 className="h-10"
-                title="Attach file"
+                title={is24HourWindowExpired ? "24-hour window expired" : "Attach file"}
               >
                 <Paperclip className="h-5 w-5" />
               </Button>
@@ -1610,8 +1682,8 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               value={inputMessage}
               onChange={(e) => setInputMessage(e.target.value)}
               onKeyPress={handleKeyPress}
-              placeholder="Type a message..."
-              disabled={sending || !isConnected}
+              placeholder={is24HourWindowExpired ? "24-hour window expired - use template message" : "Type a message..."}
+              disabled={sending || !isConnected || is24HourWindowExpired}
               className="flex-1 resize-none border border-gray-300 rounded-lg px-4 py-2 focus:outline-none focus:ring-2 focus:ring-blue-500 disabled:bg-gray-100 disabled:cursor-not-allowed"
               rows={1}
               style={{
@@ -1624,16 +1696,16 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
             {!inputMessage.trim() ? (
               <Button
                 onClick={startVoiceRecording}
-                disabled={sending || !isConnected}
+                disabled={sending || !isConnected || is24HourWindowExpired}
                 className="bg-green-600 hover:bg-green-700 text-white disabled:bg-gray-300"
-                title="Record voice note"
+                title={is24HourWindowExpired ? "24-hour window expired" : "Record voice note"}
               >
                 <Mic className="h-5 w-5" />
               </Button>
             ) : (
               <Button
                 onClick={handleSendMessage}
-                disabled={!inputMessage.trim() || sending || !isConnected}
+                disabled={!inputMessage.trim() || sending || !isConnected || is24HourWindowExpired}
                 className="bg-blue-600 hover:bg-blue-700 text-white disabled:bg-gray-300"
               >
                 <Send className="h-5 w-5" />
