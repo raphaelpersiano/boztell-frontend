@@ -166,6 +166,7 @@ export class ApiService {
     text: string;            // Message text
     type?: 'text';           // Always 'text'
     user_id?: string;        // UUID of agent sending (null = from customer)
+    room_id?: string;        // UUID of room/conversation
     replyTo?: string;        // Optional: WhatsApp message ID to reply to
   }): Promise<any> {
     return this.request('/messages/send', {
@@ -180,13 +181,20 @@ export class ApiService {
   /**
    * Send template message
    * Endpoint: POST /messages/send-template
+   * 
+   * Note: 
+   * - user_id is REQUIRED (agent/admin who sends the template)
+   * - room_id is OPTIONAL:
+   *   - If provided: Use existing room
+   *   - If null/empty: Backend will create new room for new customer
    */
   static async sendTemplate(data: {
-    to: string;              // Phone number
-    templateName: string;    // Template name (e.g., "hello_world")
-    languageCode: string;    // Language code (e.g., "en_US")
+    to: string;              // Phone number (required)
+    templateName: string;    // Template name (required, e.g., "hello_world")
+    languageCode: string;    // Language code (required, e.g., "en_US")
     parameters?: string[];   // Optional: Template parameters
-    user_id?: string;        // UUID of agent sending
+    user_id: string;         // UUID of agent sending (REQUIRED)
+    room_id?: string | null; // UUID of room/conversation (OPTIONAL - null for new customers)
   }): Promise<any> {
     // Generate a client-side id to correlate optimistic bubbles
     const clientId = `tpl-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
@@ -236,11 +244,16 @@ export class ApiService {
   static async sendContacts(data: {
     to: string;
     contacts: Array<{
-      name: { first_name: string; last_name?: string };
+      name: { 
+        formatted_name: string;
+        first_name: string; 
+        last_name?: string;
+      };
       phones?: Array<{ phone: string; type?: string }>;
       emails?: Array<{ email: string; type?: string }>;
     }>;
     user_id?: string;
+    room_id?: string;        // UUID of room/conversation
     replyTo?: string;
   }): Promise<any> {
     return this.request('/messages/send-contacts', {
@@ -262,6 +275,7 @@ export class ApiService {
       address?: string;
     };
     user_id?: string;
+    room_id?: string;        // UUID of room/conversation
     replyTo?: string;
   }): Promise<any> {
     return this.request('/messages/send-location', {
@@ -279,6 +293,7 @@ export class ApiService {
     message_id: string;      // WhatsApp message ID to react to
     emoji: string;           // Emoji (e.g., "👍")
     user_id?: string;        // UUID of agent sending
+    room_id?: string;        // UUID of room/conversation
   }): Promise<any> {
     return this.request('/messages/send-reaction', {
       method: 'POST',
@@ -293,26 +308,87 @@ export class ApiService {
    * Supported media types:
    * - Image: image/jpeg, image/png, image/webp
    * - Video: video/mp4, video/3gpp
-   * - Audio: audio/aac, audio/mp4, audio/mpeg, audio/amr, audio/ogg
+   * - Audio: audio/aac, audio/mp4, audio/mpeg, audio/amr, audio/ogg, audio/webm
+   * - Voice: audio/webm (voice notes)
    * - Document: application/pdf, application/msword, etc.
+   * 
+   * Note: Media messages do NOT support captions
    */
   static async sendMediaCombined(data: {
     media: File;             // File object to upload
     to: string;              // Phone number
-    caption?: string;        // Optional caption
     user_id?: string;        // UUID of agent sending
+    room_id?: string;        // UUID of room/conversation
   }): Promise<any> {
     const formData = new FormData();
     formData.append('media', data.media);
     formData.append('to', data.to);
-    if (data.caption) formData.append('caption', data.caption);
     if (data.user_id) formData.append('user_id', data.user_id);
+    if (data.room_id) formData.append('room_id', data.room_id);
 
-    return fetch(`${this.baseUrl}/messages/send-media-combined`, {
-      method: 'POST',
-      body: formData,
-      // Don't set Content-Type, let browser set it with boundary
-    }).then(res => res.json());
+    console.log('📤 Sending media to backend:', {
+      endpoint: '/messages/send-media-combined',
+      to: data.to,
+      fileName: data.media.name,
+      fileType: data.media.type,
+      fileSize: data.media.size,
+      hasUserId: !!data.user_id,
+      hasRoomId: !!data.room_id,
+      baseUrl: this.baseUrl,
+    });
+
+    try {
+      const response = await fetch(`${this.baseUrl}/messages/send-media-combined`, {
+        method: 'POST',
+        body: formData,
+        mode: 'cors',
+        credentials: 'omit',
+        // Don't set Content-Type, let browser set it with boundary for multipart/form-data
+      });
+
+      console.log('📡 Media upload response:', {
+        status: response.status,
+        statusText: response.statusText,
+        ok: response.ok,
+        headers: Object.fromEntries(response.headers.entries()),
+      });
+
+      if (!response.ok) {
+        let errorText = '';
+        let errorJson = null;
+        
+        try {
+          const contentType = response.headers.get('content-type');
+          if (contentType && contentType.includes('application/json')) {
+            errorJson = await response.json();
+            errorText = JSON.stringify(errorJson);
+          } else {
+            errorText = await response.text();
+          }
+        } catch (e) {
+          errorText = 'Could not parse error response';
+        }
+        
+        console.error('❌ Media upload failed:', {
+          status: response.status,
+          statusText: response.statusText,
+          body: errorText,
+          errorJson,
+        });
+        
+        throw new Error(`Failed to send media: ${response.status} ${response.statusText}. ${errorText}`);
+      }
+
+      const result = await response.json();
+      console.log('✅ Media sent successfully:', result);
+      return result;
+    } catch (error) {
+      console.error('💥 Media upload error:', error);
+      if (error instanceof TypeError && error.message.includes('fetch')) {
+        throw new Error('Cannot connect to server. Please check if backend is running on localhost:8080');
+      }
+      throw error;
+    }
   }
 
   /**

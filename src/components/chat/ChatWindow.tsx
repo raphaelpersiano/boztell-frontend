@@ -113,15 +113,24 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           return contentMatch && userMatch && timeDiff < 60000; // 60 second tolerance
         }
         
-        // Match media messages by filename and type
+        // Match media messages (document, image, video, audio, voice) by multiple criteria
         if (optMsg.content_type !== 'text' && realMsg.content_type !== 'text') {
           const typeMatch = realMsg.content_type === optMsg.content_type;
           const userMatch = realMsg.user_id === optMsg.user_id;
+          
+          // Try to match by filename (most reliable for media)
           const filenameMatch = realMsg.original_filename === optMsg.original_filename;
+          
+          // Also try to match by file size (very specific)
+          const sizeMatch = realMsg.file_size === optMsg.file_size;
+          
+          // Time difference check (should be very close for optimistic messages)
           const timeDiff = Math.abs(
             new Date(realMsg.created_at).getTime() - new Date(optMsg.created_at).getTime()
           );
-          return typeMatch && userMatch && filenameMatch && timeDiff < 60000;
+          
+          // Match if: same type + same user + (same filename OR same size) + within 60 seconds
+          return typeMatch && userMatch && (filenameMatch || sizeMatch) && timeDiff < 60000;
         }
         
         return false;
@@ -135,18 +144,40 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     // ✅ Filter out invalid messages (missing id)
     const validMessages = merged.filter(msg => msg && msg.id);
     
+    // �️ Final deduplication by ID (extra safety)
+    const seenIds = new Set<string>();
+    const uniqueMessages = validMessages.filter(msg => {
+      if (seenIds.has(msg.id)) {
+        console.warn('⚠️ Duplicate message ID detected and removed:', msg.id);
+        return false;
+      }
+      seenIds.add(msg.id);
+      return true;
+    });
+    
+    // �🔍 Debug logging for duplicate detection
+    const duplicateCheck = uniqueMessages.reduce((acc: Record<string, number>, msg) => {
+      const key = `${msg.content_type}-${msg.original_filename || msg.content_text?.slice(0, 20)}-${msg.user_id}`;
+      acc[key] = (acc[key] || 0) + 1;
+      return acc;
+    }, {});
+    
+    const hasDuplicates = Object.values(duplicateCheck).some(count => count > 1);
+    
     console.log('📊 All messages after merge:', {
-      total: validMessages.length,
+      total: uniqueMessages.length,
       fromBackend: messages.length,
       optimistic: optimisticMessages.length,
-      types: validMessages.reduce((acc: Record<string, number>, msg) => {
+      hasDuplicates,
+      duplicates: hasDuplicates ? Object.entries(duplicateCheck).filter(([_, count]) => count > 1) : [],
+      types: uniqueMessages.reduce((acc: Record<string, number>, msg) => {
         const type = msg.content_type || 'unknown';
         acc[type] = (acc[type] || 0) + 1;
         return acc;
       }, {}),
     });
     
-    return validMessages.sort((a, b) => 
+    return uniqueMessages.sort((a, b) => 
       new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     );
   }, [messages, optimisticMessages]);
@@ -189,6 +220,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         // ✅ Skip if invalid message
         if (!realMsg || !realMsg.id) return false;
         
+        // Match text messages
         if (optMsg.content_type === 'text' && realMsg.content_type === 'text') {
           const contentMatch = realMsg.content_text?.trim() === optMsg.content_text?.trim();
           const userMatch = realMsg.user_id === optMsg.user_id;
@@ -197,6 +229,21 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
           );
           return contentMatch && userMatch && timeDiff < 60000;
         }
+        
+        // Match media messages (document, image, video, audio, voice)
+        if (optMsg.content_type !== 'text' && realMsg.content_type !== 'text') {
+          const typeMatch = realMsg.content_type === optMsg.content_type;
+          const userMatch = realMsg.user_id === optMsg.user_id;
+          const filenameMatch = realMsg.original_filename === optMsg.original_filename;
+          const sizeMatch = realMsg.file_size === optMsg.file_size;
+          const timeDiff = Math.abs(
+            new Date(realMsg.created_at).getTime() - new Date(optMsg.created_at).getTime()
+          );
+          
+          // Match if: same type + same user + (same filename OR same size) + within 60 seconds
+          return typeMatch && userMatch && (filenameMatch || sizeMatch) && timeDiff < 60000;
+        }
+        
         return false;
       });
       
@@ -206,6 +253,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     });
     
     if (toRemove.length > 0) {
+      console.log('🧹 Cleaning up optimistic messages:', toRemove);
       setOptimisticMessages(prev => prev.filter(msg => !toRemove.includes(msg.id)));
       setConfirmedOptimisticIds(prev => {
         const next = new Set(prev);
@@ -267,6 +315,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         to: customerPhone,
         text: messageText,
         user_id: userId,
+        room_id: roomId,
       });
       
       // Mark as confirmed (turn blue checkmark)
@@ -364,26 +413,32 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
       // Add optimistic message immediately
       setOptimisticMessages(prev => [...prev, optimisticMessage]);
-      setInputMessage(''); // Clear caption
+      setInputMessage(''); // Clear input
 
       setSending(true);
       try {
         const response = await ApiService.sendMediaCombined({
           media: file,
           to: customerPhone,
-          caption: inputMessage.trim() || undefined,
           user_id: userId,
+          room_id: roomId,
         });
 
         console.log('✅ Media sent successfully:', response);
         
-        // Mark as confirmed
-        setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
+        // ✅ Remove optimistic message immediately (Socket.IO will add the real one)
+        console.log('🗑️ Removing optimistic media message:', tempId);
+        setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+        setConfirmedOptimisticIds(prev => {
+          const next = new Set(prev);
+          next.delete(tempId);
+          return next;
+        });
         
-        // Revoke temporary URL after confirmed
+        // Revoke temporary URL after removed
         setTimeout(() => {
           URL.revokeObjectURL(fileUrl);
-        }, 5000);
+        }, 1000);
         
       } catch (error: unknown) {
         console.error('❌ Send media error:', error);
@@ -433,6 +488,7 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
               address: undefined,
             },
             user_id: userId,
+            room_id: roomId,
           });
 
           console.log('✅ Location sent successfully');
@@ -465,11 +521,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     }
 
     // Simple prompt for demo - you can replace with a proper form modal
-    const name = prompt('Contact Name:');
-    if (!name) return;
+    const firstName = prompt('Contact First Name:');
+    if (!firstName) return;
+
+    const lastName = prompt('Contact Last Name (optional):') || undefined;
 
     const phone = prompt('Contact Phone (with country code, e.g., +6281234567890):');
     if (!phone) return;
+
+    const phoneType = prompt('Phone Type (optional, e.g., WORK, HOME, CELL):') || undefined;
+
+    // Build formatted name
+    const formattedName = lastName ? `${firstName} ${lastName}` : firstName;
 
     setSending(true);
     try {
@@ -478,12 +541,18 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
         contacts: [
           {
             name: {
-              first_name: name,
+              formatted_name: formattedName,
+              first_name: firstName,
+              last_name: lastName,
             },
-            phones: [{ phone }],
+            phones: [{ 
+              phone,
+              type: phoneType,
+            }],
           },
         ],
         user_id: userId,
+        room_id: roomId,
       });
 
       console.log('✅ Contact sent successfully');
@@ -511,9 +580,17 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       
-      const mediaRecorder = new MediaRecorder(stream, {
-        mimeType: 'audio/webm;codecs=opus',
-      });
+      // Use audio/webm with opus codec (browser standard)
+      // Backend will convert to audio/ogg for WhatsApp
+      const mimeType = 'audio/webm;codecs=opus';
+      
+      if (!MediaRecorder.isTypeSupported(mimeType)) {
+        throw new Error('Audio recording not supported in this browser');
+      }
+      
+      const mediaRecorder = new MediaRecorder(stream, { mimeType });
+      
+      console.log('🎤 MediaRecorder initialized with:', mimeType);
       
       audioChunksRef.current = [];
       
@@ -524,7 +601,14 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
       };
       
       mediaRecorder.onstop = async () => {
+        // Create blob with webm format (backend will convert to ogg)
         const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
+        
+        console.log('🎤 Recording stopped, blob created:', {
+          mimeType: 'audio/webm',
+          size: audioBlob.size
+        });
+        
         setAudioBlob(audioBlob);
         
         // Stop all tracks
@@ -585,9 +669,33 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
   };
 
   const sendVoiceNote = async (blob: Blob) => {
-    if (!customerPhone) return;
+    if (!customerPhone) {
+      console.error('❌ Cannot send voice note: customerPhone is undefined');
+      alert('Cannot send voice note: Customer phone number not available');
+      return;
+    }
 
-    const file = new File([blob], `voice-${Date.now()}.webm`, { type: 'audio/webm' });
+    // Send as audio/webm - backend will convert to audio/ogg for WhatsApp
+    const fileName = `voice-${Date.now()}.webm`;
+    const file = new File([blob], fileName, { type: 'audio/webm' });
+    
+    console.log('🎤 Preparing to send voice note:', {
+      fileName: file.name,
+      fileType: file.type,
+      fileSize: file.size,
+      blobSize: blob.size,
+      customerPhone,
+      userId,
+      note: 'Backend will convert webm → ogg for WhatsApp'
+    });
+    
+    // Log the actual file object
+    console.log('📦 File object details:', {
+      name: file.name,
+      size: file.size,
+      type: file.type,
+      lastModified: file.lastModified,
+    });
     
     // Create optimistic message
     const tempId = `temp-voice-${Date.now()}`;
@@ -621,26 +729,54 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
 
     setSending(true);
     try {
+      console.log('📤 Calling ApiService.sendMediaCombined with params:', {
+        hasFile: !!file,
+        fileName: file.name,
+        fileSize: file.size,
+        fileType: file.type,
+        to: customerPhone,
+        userId: userId || 'NULL',
+        roomId: roomId,
+      });
+      
       const response = await ApiService.sendMediaCombined({
         media: file,
         to: customerPhone,
         user_id: userId,
+        room_id: roomId,
       });
 
       console.log('✅ Voice note sent successfully:', response);
       
-      // Mark as confirmed
-      setConfirmedOptimisticIds(prev => new Set(prev).add(tempId));
+      // ✅ Remove optimistic message immediately (Socket.IO will add the real one)
+      console.log('🗑️ Removing optimistic voice message:', tempId);
+      setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
+      setConfirmedOptimisticIds(prev => {
+        const next = new Set(prev);
+        next.delete(tempId);
+        return next;
+      });
       
       // Clean up
       setTimeout(() => {
         URL.revokeObjectURL(fileUrl);
         setAudioBlob(null);
         setRecordingTime(0);
-      }, 5000);
+      }, 1000);
       
     } catch (error: unknown) {
       console.error('❌ Send voice note error:', error);
+      
+      // Enhanced error logging
+      if (error instanceof Error) {
+        console.error('❌ Error details:', {
+          message: error.message,
+          name: error.name,
+          stack: error.stack,
+        });
+      } else {
+        console.error('❌ Unknown error type:', typeof error, error);
+      }
       
       // Remove optimistic message on error
       setOptimisticMessages(prev => prev.filter(m => m.id !== tempId));
@@ -1571,7 +1707,10 @@ export const ChatWindow: React.FC<ChatWindowProps> = ({
                   className="w-1 bg-blue-500 rounded-full"
                   style={{
                     height: `${Math.random() * 20 + 10}px`,
-                    animation: `pulse ${Math.random() * 0.5 + 0.5}s ease-in-out infinite`,
+                    animationName: 'pulse',
+                    animationDuration: `${Math.random() * 0.5 + 0.5}s`,
+                    animationTimingFunction: 'ease-in-out',
+                    animationIterationCount: 'infinite',
                     animationDelay: `${i * 0.05}s`,
                   }}
                 />

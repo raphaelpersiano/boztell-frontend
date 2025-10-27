@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Test Voice Note Upload</title>
+  <style>
+    body {
+      font-family: system-ui, -apple-system, sans-serif;
+      max-width: 800px;
+      margin: 40px auto;
+      padding: 20px;
+      background: #f5f5f5;
+    }
+    .container {
+      background: white;
+      padding: 30px;
+      border-radius: 8px;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.1);
+    }
+    button {
+      background: #007bff;
+      color: white;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 6px;
+      cursor: pointer;
+      font-size: 16px;
+      margin: 10px 5px;
+    }
+    button:hover { background: #0056b3; }
+    button:disabled { 
+      background: #ccc;
+      cursor: not-allowed;
+    }
+    .log {
+      background: #f8f9fa;
+      border: 1px solid #dee2e6;
+      border-radius: 4px;
+      padding: 15px;
+      margin-top: 20px;
+      max-height: 400px;
+      overflow-y: auto;
+      font-family: 'Courier New', monospace;
+      font-size: 14px;
+    }
+    .log-entry {
+      margin: 5px 0;
+      padding: 5px;
+    }
+    .log-entry.info { color: #0066cc; }
+    .log-entry.success { color: #00aa00; }
+    .log-entry.error { color: #cc0000; }
+    .status {
+      padding: 10px;
+      margin: 10px 0;
+      border-radius: 4px;
+      font-weight: bold;
+    }
+    .status.recording { background: #fff3cd; color: #856404; }
+    .status.success { background: #d4edda; color: #155724; }
+    .status.error { background: #f8d7da; color: #721c24; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>🎤 Test Voice Note Upload</h1>
+    <p>This test simulates voice note recording and uploading to backend</p>
+
+    <div>
+      <button id="startBtn" onclick="startRecording()">Start Recording</button>
+      <button id="stopBtn" onclick="stopRecording()" disabled>Stop Recording</button>
+      <button id="uploadBtn" onclick="uploadVoiceNote()" disabled>Upload to Backend</button>
+    </div>
+
+    <div id="status"></div>
+
+    <div class="log" id="log"></div>
+  </div>
+
+  <script>
+    let mediaRecorder;
+    let audioChunks = [];
+    let audioBlob = null;
+
+    const BACKEND_URL = 'http://localhost:8080';
+    const TEST_PHONE = '6287879565390';
+    const TEST_USER_ID = '550e8400-e29b-41d4-a716-446655440000'; // Test UUID
+
+    function log(message, type = 'info') {
+      const logDiv = document.getElementById('log');
+      const entry = document.createElement('div');
+      entry.className = `log-entry ${type}`;
+      entry.textContent = `[${new Date().toLocaleTimeString()}] ${message}`;
+      logDiv.appendChild(entry);
+      logDiv.scrollTop = logDiv.scrollHeight;
+      console.log(message);
+    }
+
+    function setStatus(message, type = '') {
+      const statusDiv = document.getElementById('status');
+      statusDiv.className = `status ${type}`;
+      statusDiv.textContent = message;
+    }
+
+    async function startRecording() {
+      try {
+        log('🎤 Requesting microphone access...', 'info');
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        
+        log('✅ Microphone access granted', 'success');
+        log(`📡 Stream active: ${stream.active}`, 'info');
+        log(`🎵 Audio tracks: ${stream.getAudioTracks().length}`, 'info');
+
+        // Use audio/webm (backend will convert to audio/ogg for WhatsApp)
+        const mimeType = 'audio/webm;codecs=opus';
+
+        mediaRecorder = new MediaRecorder(stream, { mimeType });
+
+        log(`🔧 MediaRecorder created with mimeType: ${mediaRecorder.mimeType}`, 'info');
+        log('📝 Backend will convert webm → ogg for WhatsApp', 'info');
+
+        audioChunks = [];
+
+        mediaRecorder.ondataavailable = (event) => {
+          if (event.data.size > 0) {
+            audioChunks.push(event.data);
+            log(`📦 Audio chunk received: ${event.data.size} bytes`, 'info');
+          }
+        };
+
+        mediaRecorder.onstop = () => {
+          // Create blob with webm format
+          audioBlob = new Blob(audioChunks, { type: 'audio/webm' });
+          
+          log(`✅ Recording stopped. Total size: ${audioBlob.size} bytes`, 'success');
+          log(`🎵 Blob type: ${audioBlob.type}`, 'info');
+          
+          document.getElementById('uploadBtn').disabled = false;
+          setStatus('Recording complete! Ready to upload.', 'success');
+        };
+
+        mediaRecorder.start();
+        log('🔴 Recording started...', 'success');
+        
+        document.getElementById('startBtn').disabled = true;
+        document.getElementById('stopBtn').disabled = false;
+        setStatus('🔴 Recording...', 'recording');
+
+      } catch (error) {
+        log(`❌ Error starting recording: ${error.message}`, 'error');
+        setStatus(`Error: ${error.message}`, 'error');
+      }
+    }
+
+    function stopRecording() {
+      if (mediaRecorder && mediaRecorder.state !== 'inactive') {
+        mediaRecorder.stop();
+        mediaRecorder.stream.getTracks().forEach(track => track.stop());
+        log('⏹️ Stop recording requested', 'info');
+        
+        document.getElementById('startBtn').disabled = false;
+        document.getElementById('stopBtn').disabled = true;
+      }
+    }
+
+    async function uploadVoiceNote() {
+      if (!audioBlob) {
+        log('❌ No audio blob available', 'error');
+        return;
+      }
+
+      try {
+        // Send as audio/webm - backend will convert to audio/ogg
+        const fileName = `test-voice-${Date.now()}.webm`;
+        const file = new File([audioBlob], fileName, { type: 'audio/webm' });
+
+        log('📦 Preparing upload...', 'info');
+        log(`   - File name: ${file.name}`, 'info');
+        log(`   - File type: ${file.type}`, 'info');
+        log(`   - File size: ${file.size} bytes`, 'info');
+        log(`   - Note: Backend will convert webm → ogg for WhatsApp`, 'info');
+        log(`   - To: ${TEST_PHONE}`, 'info');
+        log(`   - User ID: ${TEST_USER_ID}`, 'info');
+
+        // Create FormData
+        const formData = new FormData();
+        formData.append('media', file);
+        formData.append('to', TEST_PHONE);
+        formData.append('user_id', TEST_USER_ID);
+
+        log('📤 Sending to backend...', 'info');
+        log(`   Endpoint: ${BACKEND_URL}/messages/send-media-combined`, 'info');
+
+        setStatus('⏳ Uploading...', '');
+
+        const response = await fetch(`${BACKEND_URL}/messages/send-media-combined`, {
+          method: 'POST',
+          body: formData,
+          mode: 'cors',
+          credentials: 'omit',
+        });
+
+        log(`📡 Response status: ${response.status} ${response.statusText}`, 'info');
+        log(`   Content-Type: ${response.headers.get('content-type')}`, 'info');
+
+        if (!response.ok) {
+          const errorText = await response.text();
+          log(`❌ Upload failed with status ${response.status}`, 'error');
+          log(`   Error body: ${errorText}`, 'error');
+          setStatus(`Upload failed: ${response.status} ${response.statusText}`, 'error');
+          return;
+        }
+
+        const result = await response.json();
+        log('✅ Upload successful!', 'success');
+        log(`   Response: ${JSON.stringify(result, null, 2)}`, 'success');
+        setStatus('✅ Upload successful!', 'success');
+
+        // Reset for next test
+        audioBlob = null;
+        audioChunks = [];
+        document.getElementById('uploadBtn').disabled = true;
+
+      } catch (error) {
+        log(`❌ Upload error: ${error.message}`, 'error');
+        log(`   Stack: ${error.stack}`, 'error');
+        setStatus(`Upload error: ${error.message}`, 'error');
+      }
+    }
+  </script>
+</body>
+</html>

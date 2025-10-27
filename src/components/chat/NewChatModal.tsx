@@ -119,6 +119,17 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
       return;
     }
 
+    // Validate required fields
+    if (!phoneNumber || !phoneNumber.trim()) {
+      alert('Phone number is required');
+      return;
+    }
+
+    if (!userId) {
+      alert('User ID is missing. Please try logging in again.');
+      return;
+    }
+
     // Validate parameters
     const paramValues = Object.values(templateParams);
     const hasEmptyParams = paramValues.some(val => !val.trim());
@@ -131,21 +142,37 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
     setSending(true);
 
     try {
-      console.log('📤 Sending template message...', {
-        to: phoneNumber,
+      // Build request data - user_id is required, room_id is optional
+      const requestData: any = {
+        to: phoneNumber.trim(),
         templateName: selectedTemplate.name,
-        currentRoomId,
-        hasCurrentRoom: !!currentRoomId,
+        languageCode: selectedTemplate.language || 'en',
+        user_id: userId, // REQUIRED: agent/admin who sends the template
+      };
+
+      // Add parameters only if present
+      if (paramValues.length > 0) {
+        requestData.parameters = paramValues;
+      }
+
+      // Add room_id only if exists (for existing customers)
+      // For new customers, don't include room_id at all (backend will create new room)
+      if (currentRoomId) {
+        requestData.room_id = currentRoomId;
+      }
+
+      console.log('📤 Sending template message...', {
+        to: requestData.to,
+        templateName: requestData.templateName,
+        languageCode: requestData.languageCode,
+        paramCount: paramValues.length,
+        hasRoomId: !!currentRoomId,
+        isNewCustomer: !currentRoomId,
+        userId: userId,
       });
       
       // Send template message via API
-      const response = await ApiService.sendTemplate({
-        to: phoneNumber,
-        templateName: selectedTemplate.name,
-        languageCode: selectedTemplate.language || 'en',
-        parameters: paramValues,
-        user_id: userId,
-      });
+      const response = await ApiService.sendTemplate(requestData);
 
       console.log('✅ Template sent successfully:', response);
       
