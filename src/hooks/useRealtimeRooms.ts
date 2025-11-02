@@ -12,11 +12,14 @@ export interface Room {
   room_leads_id?: string | null; // Direct leads_id from rooms table
   leads_info?: {
     id: string;
+    utm_id?: string | null;
     name: string;
     phone: string;
+    outstanding?: number;
+    loan_type?: string;
     leads_status: string;
     contact_status: string;
-  };
+  } | null;
   participants?: Array<{
     user_id: string;
     name: string;
@@ -146,22 +149,57 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
 
     console.log('📨 Listening for room updates...');
 
-    // ✅ NEW ROOM EVENT - Customer baru ngechat!
+    // ✅ NEW ROOM COMPLETE EVENT - Customer baru ngechat dengan FULL DATA!
     // Backend emit ke SEMUA users (admin/supervisor bisa assign)
     // Agent: Hanya show jika mereka di-assign ke room
-    socket.on('new_room', (newRoom: {
-      id: string;
-      phone: string;
-      title: string;
-      leads_id?: string;
-      created_at: string;
-      updated_at: string;
+    // Data sudah lengkap: room + first message + leads info (NO RACE CONDITION!)
+    socket.on('new_room_complete', (newRoom: {
+      room_id: string;
+      room_phone: string;
+      room_title: string;
+      room_created_at: string;
+      room_updated_at: string;
+      leads_id?: string | null;
+      leads_info?: {
+        id: string;
+        utm_id?: string | null;
+        name: string;
+        phone: string;
+        outstanding?: number;
+        loan_type?: string;
+        leads_status: string;
+        contact_status: string;
+      } | null;
+      last_message?: {
+        id: string;
+        content_text: string;
+        content_type: string;
+        created_at: string;
+        user_id: string | null;
+        wa_message_id: string;
+      };
+      last_message_text?: string;
+      last_message_timestamp?: string;
+      last_message_type?: string;
+      unread_count?: number;
+      message_count?: number;
+      participants?: Array<{
+        id: string;
+        user_id: string;
+        user_name: string;
+        user_email: string;
+        user_role: string;
+        joined_at: string;
+      }>;
     }) => {
-      console.log('🆕 NEW ROOM CREATED - Customer baru ngechat!', {
-        roomId: newRoom.id,
-        phone: newRoom.phone,
-        title: newRoom.title,
-        timestamp: newRoom.created_at,
+      console.log('🆕 NEW ROOM COMPLETE - Customer baru ngechat dengan FULL DATA!', {
+        roomId: newRoom.room_id,
+        phone: newRoom.room_phone,
+        title: newRoom.room_title,
+        leadsName: newRoom.leads_info?.name,
+        lastMessage: newRoom.last_message_text,
+        hasCompleteData: !!(newRoom.leads_info && newRoom.last_message),
+        timestamp: newRoom.room_created_at,
         currentUserRole: userRole,
       });
       
@@ -174,38 +212,47 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         return; // SKIP - Agent akan dapat room via refetch atau agent_assigned event
       }
       
-      // Transform to Room format
+      // ✅ Transform to Room format (data already complete from backend!)
       const roomData: Room = {
-        room_id: newRoom.id,
-        room_phone: newRoom.phone,
-        room_title: newRoom.title,
-        room_created_at: newRoom.created_at,
-        room_updated_at: newRoom.updated_at,
-        last_message: undefined,
-        last_message_at: newRoom.created_at,
-        unread_count: 0,
+        room_id: newRoom.room_id,
+        room_phone: newRoom.room_phone,
+        room_title: newRoom.room_title,
+        room_created_at: newRoom.room_created_at,
+        room_updated_at: newRoom.room_updated_at,
+        room_leads_id: newRoom.leads_id,
+        leads_info: newRoom.leads_info,
+        last_message: newRoom.last_message_text,
+        last_message_at: newRoom.last_message_timestamp || newRoom.room_created_at,
+        unread_count: newRoom.unread_count || 1,
         is_assigned: false, // New room is always unassigned initially
+        participants: newRoom.participants?.map(p => ({
+          user_id: p.user_id,
+          name: p.user_name,
+          role: p.user_role,
+        })) || [],
       };
       
       setRooms(prev => {
-        // Check if room already exists
-        const exists = prev.some(r => r.room_id === newRoom.id);
+        // Check if room already exists (prevent duplicates)
+        const exists = prev.some(r => r.room_id === newRoom.room_id);
         if (exists) {
-          console.log('⚠️ Room already exists, skipping');
-          return prev;
+          console.log('⚠️ Room already exists, updating with complete data');
+          // Update existing room with complete data
+          return prev.map(r => r.room_id === newRoom.room_id ? roomData : r);
         }
         
-        console.log('✅ Adding new room to TOP of list (Admin/Supervisor can assign agents)');
+        console.log('✅ Adding NEW COMPLETE room to TOP of list (Admin/Supervisor can assign agents)');
         // Add to TOP of list (paling atas seperti WhatsApp)
         return [roomData, ...prev];
       });
       
       // Show browser notification (only for admin/supervisor)
       if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+        const customerName = newRoom.leads_info?.name || newRoom.room_title || newRoom.room_phone;
         new Notification('💬 New Chat', {
-          body: `New chat from ${newRoom.title || newRoom.phone}`,
+          body: `New message from ${customerName}`,
           icon: '/logo.png',
-          tag: newRoom.id,
+          tag: newRoom.room_id,
         });
       }
       
@@ -218,7 +265,8 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       }
     });
 
-    // ✅ NEW MESSAGE EVENT - Update room preview
+    // ✅ NEW MESSAGE EVENT - Update room preview for existing rooms
+    // Note: For NEW rooms, use new_room_complete event instead
     socket.on('new_message', (message: {
       id: string;
       room_id: string;
@@ -230,13 +278,29 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       console.log('📩 New message in room:', message.room_id);
       
       setRooms(prev => {
-        // Update room preview
+        // Check if room exists in current list
+        const roomExists = prev.some(room => room.room_id === message.room_id);
+        
+        if (!roomExists) {
+          console.warn('⚠️ Message for UNKNOWN room - Should have received new_room_complete first!', {
+            roomId: message.room_id,
+            messageText: message.content_text,
+            hint: 'Backend should emit new_room_complete before new_message for new rooms'
+          });
+          
+          // Edge case: Room might be filtered out (e.g., agent not assigned yet)
+          // Just log and ignore - room will appear when agent is assigned
+          return prev;
+        }
+        
+        // ✅ Update room preview with latest message
         const updated = prev.map(room => {
           if (room.room_id === message.room_id) {
             return {
               ...room,
               last_message: message.content_text || '[Media]',
               last_message_at: message.created_at,
+              room_updated_at: message.created_at,
               // Increment unread count if from customer (user_id = null)
               unread_count: message.user_id === null 
                 ? (room.unread_count || 0) + 1 
@@ -246,7 +310,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           return room;
         });
         
-        // Sort by latest message (WhatsApp-like behavior)
+        // ✅ Sort by latest message (WhatsApp-like behavior)
         return updated.sort((a, b) => {
           const dateA = new Date(a.last_message_at || a.room_updated_at).getTime();
           const dateB = new Date(b.last_message_at || b.room_updated_at).getTime();
@@ -437,7 +501,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
 
     // Cleanup
     return () => {
-      socket.off('new_room');
+      socket.off('new_room_complete');
       socket.off('new_message');
       socket.off('agent_assigned');
       socket.off('agent_unassigned');

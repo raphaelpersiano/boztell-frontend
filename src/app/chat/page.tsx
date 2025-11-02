@@ -120,19 +120,27 @@ export default function ChatPage() {
   };
 
   const handleNewChatSuccess = (roomId: string) => {
+    console.log('🎯 Template sent successfully, opening room:', roomId);
+    
     setShowNewChatModal(false);
     setShowTemplateModal(false);
     
-    // Trigger rooms refetch to get the latest data
-    refetchRooms();
-    
-    // Optionally select the new room
+    // Immediately select the room if we have room_id
     if (roomId) {
-      // Small delay to ensure room appears in list after refetch
-      setTimeout(() => {
-        setSelectedRoomId(roomId);
-      }, 100);
+      console.log('✅ Auto-selecting new room:', roomId);
+      setSelectedRoomId(roomId);
     }
+    
+    // Trigger rooms refetch in background to ensure sidebar shows latest data
+    console.log('📡 Refreshing rooms list...');
+    refetchRooms()
+      .then(() => {
+        console.log('✅ Rooms list refreshed successfully');
+      })
+      .catch((error) => {
+        console.error('⚠️ Failed to refresh rooms:', error);
+        // Room is already selected, so this is non-critical
+      });
   };
 
   // Convert rooms to format expected by ChatSidebar
