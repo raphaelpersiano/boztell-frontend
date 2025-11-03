@@ -19,6 +19,10 @@ export default function ChatPage() {
   const [showTemplateModal, setShowTemplateModal] = React.useState(false);
   const [optimisticRoomUpdate, setOptimisticRoomUpdate] = React.useState<{[roomId: string]: any}>({});
   const [refreshingRoom, setRefreshingRoom] = React.useState(false);
+  const [pendingRoomSelection, setPendingRoomSelection] = React.useState<{
+    phone?: string;
+    timestamp: number;
+  } | null>(null);
 
   // ✅ Socket.IO connection (shared across components)
   const { socket, isConnected, error: socketError } = useSocket();
@@ -44,6 +48,40 @@ export default function ChatPage() {
       markRoomAsRead(selectedRoomId);
     }
   }, [selectedRoomId, markRoomAsRead]);
+
+  // Auto-select room when it appears (from template message sent)
+  React.useEffect(() => {
+    if (!pendingRoomSelection || !pendingRoomSelection.phone) return;
+    
+    // Check if pending selection is too old (> 30 seconds)
+    const ageInSeconds = (Date.now() - pendingRoomSelection.timestamp) / 1000;
+    if (ageInSeconds > 30) {
+      console.log('⏰ Pending room selection expired, clearing...');
+      setPendingRoomSelection(null);
+      return;
+    }
+    
+    // Try to find room by phone
+    const cleanPendingPhone = pendingRoomSelection.phone.replace(/\D/g, '');
+    const matchingRoom = rooms.find(r => {
+      const cleanRoomPhone = r.room_phone.replace(/\D/g, '');
+      return cleanRoomPhone === cleanPendingPhone || 
+             cleanRoomPhone.endsWith(cleanPendingPhone) ||
+             cleanPendingPhone.endsWith(cleanRoomPhone);
+    });
+    
+    if (matchingRoom) {
+      console.log('✅ Room appeared via realtime! Auto-selecting:', matchingRoom.room_id);
+      setSelectedRoomId(matchingRoom.room_id);
+      setPendingRoomSelection(null); // Clear pending
+    } else {
+      console.log('⏳ Still waiting for room to appear...', { 
+        pendingPhone: cleanPendingPhone, 
+        availableRooms: rooms.length,
+        ageInSeconds: Math.round(ageInSeconds)
+      });
+    }
+  }, [rooms, pendingRoomSelection]);
 
   const selectedRoom = rooms.find(room => room.room_id === selectedRoomId);
   
@@ -119,27 +157,81 @@ export default function ChatPage() {
     }
   };
 
-  const handleNewChatSuccess = (roomId: string) => {
-    console.log('🎯 Template sent successfully, opening room:', roomId);
+  const handleNewChatSuccess = (roomId: string, phoneNumber?: string) => {
+    console.log('🎯 Template sent successfully', { roomId, phoneNumber });
     
     setShowNewChatModal(false);
     setShowTemplateModal(false);
     
-    // Immediately select the room if we have room_id
+    // Strategy 1: If we have room_id, check if it exists in current list
     if (roomId) {
-      console.log('✅ Auto-selecting new room:', roomId);
-      setSelectedRoomId(roomId);
+      const roomExists = rooms.some(r => r.room_id === roomId);
+      
+      if (roomExists) {
+        console.log('✅ Room exists in list, selecting immediately:', roomId);
+        setSelectedRoomId(roomId);
+        setPendingRoomSelection(null); // Clear any pending
+        return; // Early exit - room selected successfully
+      } else {
+        console.log('ℹ️ Room not in list yet, will wait for realtime update or refetch...');
+        // Continue to refetch strategy below
+      }
     }
     
-    // Trigger rooms refetch in background to ensure sidebar shows latest data
-    console.log('📡 Refreshing rooms list...');
+    // Set pending room selection (will auto-select when room appears)
+    if (phoneNumber) {
+      console.log('📌 Setting pending room selection for phone:', phoneNumber);
+      setPendingRoomSelection({
+        phone: phoneNumber,
+        timestamp: Date.now(),
+      });
+    }
+    
+    // Strategy 2: Refetch and try to find room by phone or room_id
+    console.log('📡 Refreshing rooms list to find new/updated room...');
     refetchRooms()
       .then(() => {
-        console.log('✅ Rooms list refreshed successfully');
+        console.log('✅ Rooms list refreshed');
+        
+        // Try to find room by room_id first (most reliable)
+        if (roomId) {
+          const roomById = rooms.find(r => r.room_id === roomId);
+          if (roomById) {
+            console.log('✅ Found room by ID after refetch:', roomId);
+            setSelectedRoomId(roomId);
+            setPendingRoomSelection(null); // Clear pending
+            return;
+          }
+        }
+        
+        // Fallback: Try to find room by phone number
+        if (phoneNumber) {
+          // Clean phone number (remove +, spaces, etc.)
+          const cleanPhone = phoneNumber.replace(/\D/g, '');
+          const roomByPhone = rooms.find(r => {
+            const cleanRoomPhone = r.room_phone.replace(/\D/g, '');
+            return cleanRoomPhone === cleanPhone || 
+                   cleanRoomPhone.endsWith(cleanPhone) ||
+                   cleanPhone.endsWith(cleanRoomPhone);
+          });
+          
+          if (roomByPhone) {
+            console.log('✅ Found room by phone after refetch:', roomByPhone.room_id);
+            setSelectedRoomId(roomByPhone.room_id);
+            setPendingRoomSelection(null); // Clear pending
+            return;
+          }
+        }
+        
+        // If still not found, wait for socket event (useEffect will auto-select)
+        console.log('⏳ Room not found yet, waiting for socket event new_room_complete...');
+        console.log('💡 Tip: Room should appear automatically via realtime when backend emits event');
+        console.log('📌 Pending selection active - will auto-select when room appears');
       })
       .catch((error) => {
         console.error('⚠️ Failed to refresh rooms:', error);
-        // Room is already selected, so this is non-critical
+        console.log('⏳ Waiting for socket event to deliver room...');
+        console.log('📌 Pending selection active - will auto-select when room appears');
       });
   };
 
