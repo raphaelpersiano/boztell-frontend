@@ -38,12 +38,11 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
   const [loadingAgents, setLoadingAgents] = React.useState(false);
   const [loadingAssigned, setLoadingAssigned] = React.useState(false);
 
-  // Only show to supervisors/admins
-  const canManageAssignments = user?.role === 'admin' || user?.role === 'supervisor';
+  // Can edit (assign/unassign) - only supervisors/admins
+  const canEdit = user?.role === 'admin' || user?.role === 'supervisor';
   
-  if (!canManageAssignments) {
-    return null;
-  }
+  // Can view - all roles (agent can view but not edit)
+  const canView = true;
 
   // Load all agents
   const loadAgents = async () => {
@@ -250,9 +249,14 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b">
-              <h3 className="text-lg font-semibold text-gray-900">
-                Manage Room Access
-              </h3>
+              <div>
+                <h3 className="text-lg font-semibold text-gray-900">
+                  {canEdit ? 'Manage Room Access' : 'View Room Access'}
+                </h3>
+                {!canEdit && (
+                  <p className="text-xs text-gray-500 mt-1">View only - Contact supervisor to make changes</p>
+                )}
+              </div>
               <button
                 onClick={closeModal}
                 className="text-gray-400 hover:text-gray-600"
@@ -286,74 +290,78 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
                             <div className="text-xs text-gray-500">{agent.email}</div>
                           </div>
                         </div>
-                        <button
-                          onClick={() => handleUnassignAgent(agent.id)}
-                          disabled={loading}
-                          className="text-red-600 hover:text-red-800 p-1"
-                          title="Remove access"
-                        >
-                          <Trash2 className="h-4 w-4" />
-                        </button>
+                        {canEdit && (
+                          <button
+                            onClick={() => handleUnassignAgent(agent.id)}
+                            disabled={loading}
+                            className="text-red-600 hover:text-red-800 p-1"
+                            title="Remove access"
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </button>
+                        )}
                       </div>
                     ))}
                   </div>
                 )}
               </div>
 
-              {/* Add Agent Section */}
-              <div>
-                <h4 className="text-sm font-medium text-gray-700 mb-3">
-                  Add Agent
-                </h4>
-                
-                {/* Search Input */}
-                <div className="relative mb-3">
-                  <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
-                  <input
-                    type="text"
-                    placeholder="Search agents..."
-                    value={searchTerm}
-                    onChange={(e) => setSearchTerm(e.target.value)}
-                    className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
-                  />
-                </div>
-
-                {/* Agent List */}
-                {loadingAgents ? (
-                  <div className="text-sm text-gray-500 py-2">Loading agents...</div>
-                ) : filteredAgents.length === 0 ? (
-                  <div className="text-sm text-gray-500 py-2">
-                    {searchTerm ? 'No agents found matching your search' : 'All agents are already assigned'}
+              {/* Add Agent Section - Only show for admin/supervisor */}
+              {canEdit && (
+                <div>
+                  <h4 className="text-sm font-medium text-gray-700 mb-3">
+                    Add Agent
+                  </h4>
+                  
+                  {/* Search Input */}
+                  <div className="relative mb-3">
+                    <Search className="absolute left-3 top-1/2 transform -translate-y-1/2 text-gray-400 h-4 w-4" />
+                    <input
+                      type="text"
+                      placeholder="Search agents..."
+                      value={searchTerm}
+                      onChange={(e) => setSearchTerm(e.target.value)}
+                      className="w-full pl-10 pr-4 py-2 border border-gray-300 rounded-md focus:ring-2 focus:ring-blue-500 focus:border-blue-500 text-sm"
+                    />
                   </div>
-                ) : (
-                  <div className="space-y-1 max-h-32 overflow-y-auto">
-                    {filteredAgents.map((agent) => (
-                      <div
-                        key={agent.id}
-                        className="w-full flex items-center justify-between p-2 hover:bg-gray-50 rounded-md"
-                      >
-                        <div className="flex items-center space-x-3">
-                          <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
-                            {agent.name.charAt(0).toUpperCase()}
+
+                  {/* Agent List */}
+                  {loadingAgents ? (
+                    <div className="text-sm text-gray-500 py-2">Loading agents...</div>
+                  ) : filteredAgents.length === 0 ? (
+                    <div className="text-sm text-gray-500 py-2">
+                      {searchTerm ? 'No agents found matching your search' : 'All agents are already assigned'}
+                    </div>
+                  ) : (
+                    <div className="space-y-1 max-h-32 overflow-y-auto">
+                      {filteredAgents.map((agent) => (
+                        <div
+                          key={agent.id}
+                          className="w-full flex items-center justify-between p-2 hover:bg-gray-50 rounded-md"
+                        >
+                          <div className="flex items-center space-x-3">
+                            <div className="w-8 h-8 bg-gray-500 rounded-full flex items-center justify-center text-white text-sm font-medium">
+                              {agent.name.charAt(0).toUpperCase()}
+                            </div>
+                            <div>
+                              <div className="text-sm font-medium text-gray-900">{agent.name}</div>
+                              <div className="text-xs text-gray-500">{agent.email}</div>
+                            </div>
                           </div>
-                          <div>
-                            <div className="text-sm font-medium text-gray-900">{agent.name}</div>
-                            <div className="text-xs text-gray-500">{agent.email}</div>
-                          </div>
+                          <button
+                            onClick={() => handleAssignAgent(agent.id)}
+                            disabled={loading}
+                            className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white flex items-center justify-center transition-colors"
+                            title="Assign agent to room"
+                          >
+                            <span className="text-lg font-bold leading-none">+</span>
+                          </button>
                         </div>
-                        <button
-                          onClick={() => handleAssignAgent(agent.id)}
-                          disabled={loading}
-                          className="flex-shrink-0 w-8 h-8 rounded-full bg-blue-500 hover:bg-blue-600 disabled:bg-gray-300 text-white flex items-center justify-center transition-colors"
-                          title="Assign agent to room"
-                        >
-                          <span className="text-lg font-bold leading-none">+</span>
-                        </button>
-                      </div>
-                    ))}
-                  </div>
-                )}
-              </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Footer */}

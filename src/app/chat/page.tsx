@@ -16,7 +16,6 @@ export default function ChatPage() {
   const [selectedRoomId, setSelectedRoomId] = React.useState<string | null>(null);
   const [showLeadPopup, setShowLeadPopup] = React.useState(false);
   const [showNewChatModal, setShowNewChatModal] = React.useState(false);
-  const [showTemplateModal, setShowTemplateModal] = React.useState(false);
   const [optimisticRoomUpdate, setOptimisticRoomUpdate] = React.useState<{[roomId: string]: any}>({});
   const [refreshingRoom, setRefreshingRoom] = React.useState(false);
 
@@ -34,7 +33,7 @@ export default function ChatPage() {
   // Auto-select first room when rooms load
   React.useEffect(() => {
     if (!selectedRoomId && rooms.length > 0) {
-      setSelectedRoomId(rooms[0].room_id);
+      setSelectedRoomId(rooms[0].id);
     }
   }, [rooms, selectedRoomId]);
 
@@ -45,116 +44,53 @@ export default function ChatPage() {
     }
   }, [selectedRoomId, markRoomAsRead]);
 
-  const selectedRoom = rooms.find(room => room.room_id === selectedRoomId);
+  const selectedRoom = rooms.find(room => room.id === selectedRoomId);
   
   // Apply optimistic updates to selected room
   const displayRoom = selectedRoom && optimisticRoomUpdate[selectedRoomId || ''] 
     ? { ...selectedRoom, ...optimisticRoomUpdate[selectedRoomId || ''] }
     : selectedRoom;
 
-  // Transform displayRoom to match Room type expected by LeadManagementPopup
-  const transformedDisplayRoom = displayRoom ? {
-    id: displayRoom.room_id,
-    phone: displayRoom.room_phone,
-    title: displayRoom.room_title,
-    leads_id: displayRoom.room_leads_id || displayRoom.leads_info?.id || null, // Prioritize direct leads_id field
-    created_at: displayRoom.room_created_at,
-    updated_at: displayRoom.room_updated_at,
-    lead: displayRoom.leads_info ? {
-      id: displayRoom.leads_info.id,
-      name: displayRoom.leads_info.name,
-      phone: displayRoom.leads_info.phone,
-      leads_status: displayRoom.leads_info.leads_status,
-      contact_status: displayRoom.leads_info.contact_status,
-      outstanding: 0,
-      loan_type: '',
-      utm_id: null,
-      created_at: '',
-      updated_at: '',
-    } : undefined,
-    last_message: displayRoom.last_message,
-    last_message_at: displayRoom.last_message_at,
-    unread_count: displayRoom.unread_count,
-    is_assigned: displayRoom.is_assigned,
-  } : null;
-
   const handleSaveLeadPopup = (updatedData?: { lead?: any; roomTitle?: string }) => {
     setShowLeadPopup(false);
     
-    // If we have updated data, apply optimistic update
+    // If we have updated data, apply optimistic update and refresh
     if (updatedData && selectedRoomId) {
       console.log('Lead data updated, applying optimistic update...', updatedData);
       
-      // Apply optimistic update immediately for instant UI feedback
+      // Apply optimistic update immediately
       setOptimisticRoomUpdate(prev => ({
         ...prev,
         [selectedRoomId]: {
-          ...(updatedData.roomTitle && { room_title: updatedData.roomTitle }),
-          ...(updatedData.lead && { leads_info: updatedData.lead }),
+          ...(updatedData.roomTitle && { title: updatedData.roomTitle }),
+          ...(updatedData.lead && { lead: updatedData.lead }),
         }
       }));
       
-      // Optional: Refresh rooms data to sync with database in background
-      // If this fails, we keep the optimistic update so UI doesn't break
-      console.log('📡 Attempting to refresh rooms in background...');
+      // Force refresh rooms data to sync with database
       setRefreshingRoom(true);
-      refetchRooms()
-        .then(() => {
-          console.log('✅ Rooms refreshed successfully after lead update');
-          // Clear optimistic update after real data is loaded
-          setOptimisticRoomUpdate(prev => {
-            const newState = { ...prev };
-            delete newState[selectedRoomId];
-            return newState;
-          });
-        })
-        .catch((error) => {
-          console.error('⚠️ Failed to refresh rooms after lead update:', error);
-          console.log('ℹ️ Keeping optimistic update - UI will continue to work');
-          // Keep optimistic update - don't clear it since refresh failed
-        })
-        .finally(() => {
-          setRefreshingRoom(false);
+      refetchRooms().then(() => {
+        // Clear optimistic update after real data is loaded
+        setOptimisticRoomUpdate(prev => {
+          const newState = { ...prev };
+          delete newState[selectedRoomId];
+          return newState;
         });
+        setRefreshingRoom(false);
+      });
     }
   };
 
   const handleNewChatSuccess = (roomId: string) => {
     setShowNewChatModal(false);
-    setShowTemplateModal(false);
-    
-    // Trigger rooms refetch to get the latest data
-    refetchRooms();
-    
+    // Room list will refresh automatically via realtime subscription
     // Optionally select the new room
     if (roomId) {
-      // Small delay to ensure room appears in list after refetch
-      setTimeout(() => {
-        setSelectedRoomId(roomId);
-      }, 100);
+      setSelectedRoomId(roomId);
     }
   };
 
-  // Convert rooms to format expected by ChatSidebar
-  const sidebarRooms = React.useMemo(() => {
-    return rooms.map(room => ({
-      id: room.room_id,
-      phone: room.room_phone,
-      title: room.room_title,
-      last_message: room.last_message,
-      last_message_at: room.last_message_at,
-      unread_count: room.unread_count || 0,
-      created_at: room.room_created_at,
-      updated_at: room.room_updated_at,
-      lead: room.leads_info,
-      leads_id: room.room_leads_id || room.leads_info?.id || null, // Prioritize direct leads_id field
-      participants: room.participants,
-      // Use backend's is_assigned field (more reliable than counting participants)
-      is_assigned: room.is_assigned,
-      assigned_count: room.participants?.length || 0,
-      assigned_agents: room.participants,
-    })) as any[]; // Use any[] temporarily to bypass type check
-  }, [rooms]);
+  // Rooms are already in the correct format from useRealtimeRooms hook
 
   return (
     <ProtectedRoute>
@@ -167,7 +103,7 @@ export default function ChatPage() {
             userId={user?.id || ''}
             userRole={user?.role || 'agent'}
             onNewChat={() => setShowNewChatModal(true)}
-            rooms={sidebarRooms}
+            rooms={rooms}
             loading={loadingRooms}
           />
 
@@ -203,11 +139,8 @@ export default function ChatPage() {
               <ChatWindow
                 roomId={selectedRoomId}
                 userId={user?.id || ''}
-                customerPhone={selectedRoom?.room_phone || undefined}
-                roomTitle={selectedRoom?.room_title || undefined}
-                lastMessageAt={selectedRoom?.last_message_at || undefined}
+                customerPhone={selectedRoom?.phone || undefined}
                 onShowLeadPopup={() => setShowLeadPopup(true)}
-                onShowTemplateModal={() => setShowTemplateModal(true)}
               />
             ) : (
               <div className="flex h-full items-center justify-center bg-gray-50">
@@ -276,7 +209,7 @@ export default function ChatPage() {
           {showLeadPopup && selectedRoomId && (
             <LeadManagementPopup
               roomId={selectedRoomId}
-              room={transformedDisplayRoom}
+              room={displayRoom || null}
               isOpen={showLeadPopup}
               onClose={() => setShowLeadPopup(false)}
               onSave={handleSaveLeadPopup}
@@ -284,22 +217,12 @@ export default function ChatPage() {
             />
           )}
 
-          {/* New Chat Modal - From Sidebar (empty phone) */}
+          {/* New Chat Modal */}
           <NewChatModal
             isOpen={showNewChatModal}
             onClose={() => setShowNewChatModal(false)}
             onSuccess={handleNewChatSuccess}
             userId={user?.id || ''}
-          />
-
-          {/* Template Modal - From ChatWindow (pre-filled phone) */}
-          <NewChatModal
-            isOpen={showTemplateModal}
-            onClose={() => setShowTemplateModal(false)}
-            onSuccess={handleNewChatSuccess}
-            userId={user?.id || ''}
-            prefilledPhone={selectedRoom?.room_phone || undefined}
-            currentRoomId={selectedRoomId || undefined}
           />
         </div>
       </Layout>
