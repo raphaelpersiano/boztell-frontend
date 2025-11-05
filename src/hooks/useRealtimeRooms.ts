@@ -2,76 +2,33 @@
 
 import { useEffect, useState, useCallback } from 'react';
 import { Socket } from 'socket.io-client';
-import type { Room } from '@/types';
 
-// Backend response format
-interface BackendRoom {
+export interface Room {
   room_id: string;
   room_phone: string;
   room_title: string;
   room_created_at: string;
   room_updated_at: string;
-  leads_id?: string | null;
+  room_leads_id?: string | null; // Direct leads_id from rooms table
   leads_info?: {
     id: string;
+    utm_id?: string | null;
     name: string;
     phone: string;
+    outstanding?: number;
+    loan_type?: string;
     leads_status: string;
     contact_status: string;
-    utm_id?: string | null;
-    outstanding?: number | null;
-    loan_type?: string | null;
-  };
+  } | null;
   participants?: Array<{
     user_id: string;
-    joined_at?: string;
-    user_info?: {
-      id: string;
-      name: string;
-      email: string;
-      role: string;
-    };
+    name: string;
+    role: string;
   }>;
-  last_message?: string | null;
-  last_message_at?: string | null;
+  last_message?: string;
+  last_message_at?: string;
   unread_count?: number;
-  is_assigned?: boolean;
-  assigned_count?: number;
-  participant_joined_at?: string; // For agent-specific queries
-}
-
-// Transform backend response to frontend Room type
-function transformBackendRoom(backendRoom: BackendRoom): Room {
-  return {
-    id: backendRoom.room_id,
-    phone: backendRoom.room_phone,
-    title: backendRoom.room_title,
-    created_at: backendRoom.room_created_at,
-    updated_at: backendRoom.room_updated_at,
-    leads_id: backendRoom.leads_id || null,
-    lead: backendRoom.leads_info ? {
-      id: backendRoom.leads_info.id,
-      name: backendRoom.leads_info.name || null,
-      phone: backendRoom.leads_info.phone,
-      leads_status: backendRoom.leads_info.leads_status || null,
-      contact_status: backendRoom.leads_info.contact_status || null,
-      utm_id: backendRoom.leads_info.utm_id || null,
-      outstanding: backendRoom.leads_info.outstanding || null,
-      loan_type: backendRoom.leads_info.loan_type || null,
-      created_at: backendRoom.room_created_at, // Fallback
-      updated_at: backendRoom.room_updated_at, // Fallback
-    } : undefined,
-    last_message: backendRoom.last_message || undefined,
-    last_message_at: backendRoom.last_message_at || undefined,
-    unread_count: backendRoom.unread_count || 0,
-    is_assigned: backendRoom.is_assigned ?? false,
-    assigned_count: backendRoom.assigned_count || backendRoom.participants?.length || 0,
-    assigned_agents: backendRoom.participants?.map(p => ({
-      room_id: backendRoom.room_id,
-      user_id: p.user_id,
-      joined_at: p.joined_at || backendRoom.participant_joined_at || backendRoom.room_created_at,
-    })) || [],
-  };
+  is_assigned?: boolean; // Backend field: true if room has assigned agents
 }
 
 interface UseRealtimeRoomsProps {
@@ -95,24 +52,25 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       console.log('📚 Fetching room list...', { 
         userId, 
         userRole,
-        hasUserId: !!userId
+        hasUserId: !!userId,
+        willFilter: userRole === 'agent' && !!userId
       });
       
-      // ✅ ALWAYS use GET /rooms?user_id= for ALL roles
-      // Backend will handle authorization and return appropriate rooms
-      // - Admin/Supervisor: Backend returns all rooms
-      // - Agent: Backend returns only assigned rooms
+      // Build URL with query params for agent filtering
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
+      let url = `${baseUrl}/rooms`;
       
-      if (!userId) {
-        throw new Error('User ID is required to fetch rooms');
+      // For agents, add user_id to filter their assigned rooms
+      // Admin/Supervisor: GET /rooms (all rooms)
+      // Agent: GET /rooms?user_id=<agent_uuid> (only assigned rooms)
+      if (userRole === 'agent' && userId) {
+        url += `?user_id=${userId}`;
+        console.log('🔍 Agent mode: Filtering rooms by user_id');
+      } else {
+        console.log('👥 Admin/Supervisor mode: Fetching all rooms');
       }
       
-      const url = `${baseUrl}/rooms?user_id=${userId}`;
-      
-      console.log('� Fetching from:', url);
-      console.log('� User role:', userRole);
-      console.log('🆔 User ID:', userId);
+      console.log('📡 Fetching from:', url);
       
       const response = await fetch(url);
       
@@ -153,30 +111,16 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           console.warn('⚠️ No rooms found!', {
             userRole,
             userId,
-            hint: 'No rooms available for this user. Backend controls room visibility based on role and assignments.'
+            hint: userRole === 'agent' 
+              ? 'Agent might not be assigned to any rooms. Check room_participants table.'
+              : 'No rooms exist in database yet.'
           });
         }
         
-        // Transform backend response to frontend format
-        const transformedRooms = data.data.rooms.map((room: BackendRoom) => transformBackendRoom(room));
-        
-        console.log('🔄 Transformed rooms:', {
-          count: transformedRooms.length,
-          sample: transformedRooms[0] ? {
-            id: transformedRooms[0].id,
-            title: transformedRooms[0].title,
-            phone: transformedRooms[0].phone,
-            last_message: transformedRooms[0].last_message,
-            last_message_at: transformedRooms[0].last_message_at,
-          } : null
-        });
-        
-        // Sort by latest activity (already sorted by ChatSidebar, but good to have here too)
-        const sortedRooms = transformedRooms.sort((a: Room, b: Room) => {
-          const timeA = a.last_message_at || a.updated_at;
-          const timeB = b.last_message_at || b.updated_at;
-          const dateA = new Date(timeA).getTime();
-          const dateB = new Date(timeB).getTime();
+        // Sort by latest activity
+        const sortedRooms = data.data.rooms.sort((a: Room, b: Room) => {
+          const dateA = new Date(a.last_message_at || a.room_updated_at).getTime();
+          const dateB = new Date(b.last_message_at || b.room_updated_at).getTime();
           return dateB - dateA;
         });
         
@@ -205,22 +149,57 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
 
     console.log('📨 Listening for room updates...');
 
-    // ✅ NEW ROOM EVENT - Customer baru ngechat!
+    // ✅ NEW ROOM COMPLETE EVENT - Customer baru ngechat dengan FULL DATA!
     // Backend emit ke SEMUA users (admin/supervisor bisa assign)
     // Agent: Hanya show jika mereka di-assign ke room
-    socket.on('new_room', (newRoom: {
-      id: string;
-      phone: string;
-      title: string;
-      leads_id?: string;
-      created_at: string;
-      updated_at: string;
+    // Data sudah lengkap: room + first message + leads info (NO RACE CONDITION!)
+    socket.on('new_room_complete', (newRoom: {
+      room_id: string;
+      room_phone: string;
+      room_title: string;
+      room_created_at: string;
+      room_updated_at: string;
+      leads_id?: string | null;
+      leads_info?: {
+        id: string;
+        utm_id?: string | null;
+        name: string;
+        phone: string;
+        outstanding?: number;
+        loan_type?: string;
+        leads_status: string;
+        contact_status: string;
+      } | null;
+      last_message?: {
+        id: string;
+        content_text: string;
+        content_type: string;
+        created_at: string;
+        user_id: string | null;
+        wa_message_id: string;
+      };
+      last_message_text?: string;
+      last_message_timestamp?: string;
+      last_message_type?: string;
+      unread_count?: number;
+      message_count?: number;
+      participants?: Array<{
+        id: string;
+        user_id: string;
+        user_name: string;
+        user_email: string;
+        user_role: string;
+        joined_at: string;
+      }>;
     }) => {
-      console.log('🆕 NEW ROOM CREATED - Customer baru ngechat!', {
-        roomId: newRoom.id,
-        phone: newRoom.phone,
-        title: newRoom.title,
-        timestamp: newRoom.created_at,
+      console.log('🆕 NEW ROOM COMPLETE - Customer baru ngechat dengan FULL DATA!', {
+        roomId: newRoom.room_id,
+        phone: newRoom.room_phone,
+        title: newRoom.room_title,
+        leadsName: newRoom.leads_info?.name,
+        lastMessage: newRoom.last_message_text,
+        hasCompleteData: !!(newRoom.leads_info && newRoom.last_message),
+        timestamp: newRoom.room_created_at,
         currentUserRole: userRole,
       });
       
@@ -233,41 +212,47 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         return; // SKIP - Agent akan dapat room via refetch atau agent_assigned event
       }
       
-      // Transform to Room format
+      // ✅ Transform to Room format (data already complete from backend!)
       const roomData: Room = {
-        id: newRoom.id,
-        phone: newRoom.phone,
-        title: newRoom.title,
-        created_at: newRoom.created_at,
-        updated_at: newRoom.updated_at,
-        leads_id: newRoom.leads_id || null,
-        last_message: undefined,
-        last_message_at: newRoom.created_at,
-        unread_count: 0,
+        room_id: newRoom.room_id,
+        room_phone: newRoom.room_phone,
+        room_title: newRoom.room_title,
+        room_created_at: newRoom.room_created_at,
+        room_updated_at: newRoom.room_updated_at,
+        room_leads_id: newRoom.leads_id,
+        leads_info: newRoom.leads_info,
+        last_message: newRoom.last_message_text,
+        last_message_at: newRoom.last_message_timestamp || newRoom.room_created_at,
+        unread_count: newRoom.unread_count || 1,
         is_assigned: false, // New room is always unassigned initially
-        assigned_count: 0,
-        assigned_agents: [],
+        participants: newRoom.participants?.map(p => ({
+          user_id: p.user_id,
+          name: p.user_name,
+          role: p.user_role,
+        })) || [],
       };
       
       setRooms(prev => {
-        // Check if room already exists
-        const exists = prev.some(r => r.id === newRoom.id);
+        // Check if room already exists (prevent duplicates)
+        const exists = prev.some(r => r.room_id === newRoom.room_id);
         if (exists) {
-          console.log('⚠️ Room already exists, skipping');
-          return prev;
+          console.log('⚠️ Room already exists, updating with complete data');
+          // Update existing room with complete data
+          return prev.map(r => r.room_id === newRoom.room_id ? roomData : r);
         }
         
-        console.log('✅ Adding new room to TOP of list (Admin/Supervisor can assign agents)');
+        console.log('✅ Adding NEW COMPLETE room to TOP of list (Admin/Supervisor can assign agents)');
         // Add to TOP of list (paling atas seperti WhatsApp)
         return [roomData, ...prev];
       });
       
       // Show browser notification (only for admin/supervisor)
       if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+        const customerName = newRoom.leads_info?.name || newRoom.room_title || newRoom.room_phone;
         new Notification('💬 New Chat', {
-          body: `New chat from ${newRoom.title || newRoom.phone}`,
+          body: `New message from ${customerName}`,
           icon: '/logo.png',
-          tag: newRoom.id,
+          tag: newRoom.room_id,
         });
       }
       
@@ -280,7 +265,8 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       }
     });
 
-    // ✅ NEW MESSAGE EVENT - Update room preview
+    // ✅ NEW MESSAGE EVENT - Update room preview for existing rooms
+    // Note: For NEW rooms, use new_room_complete event instead
     socket.on('new_message', (message: {
       id: string;
       room_id: string;
@@ -292,13 +278,29 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       console.log('📩 New message in room:', message.room_id);
       
       setRooms(prev => {
-        // Update room preview
+        // Check if room exists in current list
+        const roomExists = prev.some(room => room.room_id === message.room_id);
+        
+        if (!roomExists) {
+          console.warn('⚠️ Message for UNKNOWN room - Should have received new_room_complete first!', {
+            roomId: message.room_id,
+            messageText: message.content_text,
+            hint: 'Backend should emit new_room_complete before new_message for new rooms'
+          });
+          
+          // Edge case: Room might be filtered out (e.g., agent not assigned yet)
+          // Just log and ignore - room will appear when agent is assigned
+          return prev;
+        }
+        
+        // ✅ Update room preview with latest message
         const updated = prev.map(room => {
-          if (room.id === message.room_id) {
+          if (room.room_id === message.room_id) {
             return {
               ...room,
               last_message: message.content_text || '[Media]',
               last_message_at: message.created_at,
+              room_updated_at: message.created_at,
               // Increment unread count if from customer (user_id = null)
               unread_count: message.user_id === null 
                 ? (room.unread_count || 0) + 1 
@@ -308,10 +310,10 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           return room;
         });
         
-        // Sort by latest message (WhatsApp-like behavior)
+        // ✅ Sort by latest message (WhatsApp-like behavior)
         return updated.sort((a, b) => {
-          const dateA = new Date(a.last_message_at || a.updated_at).getTime();
-          const dateB = new Date(b.last_message_at || b.updated_at).getTime();
+          const dateA = new Date(a.last_message_at || a.room_updated_at).getTime();
+          const dateB = new Date(b.last_message_at || b.room_updated_at).getTime();
           return dateB - dateA;
         });
       });
@@ -346,27 +348,28 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         
         setRooms(prev => {
           // Check if room already exists
-          const exists = prev.some(r => r.id === data.room_id);
+          const exists = prev.some(r => r.room_id === data.room_id);
           
           if (exists) {
-            console.log('ℹ️ Room already in list, updating assigned_agents and is_assigned');
-            // Just update assigned_agents and is_assigned
+            console.log('ℹ️ Room already in list, updating participants and is_assigned');
+            // Just update participants and is_assigned
             return prev.map(room => {
-              if (room.id === data.room_id) {
-                const assignedAgents = room.assigned_agents || [];
-                const agentExists = assignedAgents.some(a => a.user_id === data.agent_id);
+              if (room.room_id === data.room_id) {
+                const participants = room.participants || [];
+                const agentExists = participants.some(p => p.user_id === data.agent_id);
                 
                 if (!agentExists) {
-                  const newAgent = {
-                    room_id: data.room_id,
-                    user_id: data.agent_id,
-                    joined_at: data.assigned_at,
-                  };
                   return {
                     ...room,
                     is_assigned: true,
-                    assigned_count: (room.assigned_count || 0) + 1,
-                    assigned_agents: [...assignedAgents, newAgent],
+                    participants: [
+                      ...participants,
+                      {
+                        user_id: data.agent_id,
+                        name: data.agent_name,
+                        role: 'agent',
+                      }
+                    ],
                   };
                 }
                 // Agent already exists, just update is_assigned
@@ -383,18 +386,16 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           if (data.room) {
             console.log('✅ Adding newly assigned room to agent list');
             const newRoom: Room = {
-              id: data.room.id,
-              phone: data.room.phone,
-              title: data.room.title,
-              created_at: data.room.created_at,
-              updated_at: data.room.updated_at,
-              leads_id: null,
+              room_id: data.room.id,
+              room_phone: data.room.phone,
+              room_title: data.room.title,
+              room_created_at: data.room.created_at,
+              room_updated_at: data.room.updated_at,
               is_assigned: true, // Room is assigned (agent just got assigned)
-              assigned_count: 1,
-              assigned_agents: [{
-                room_id: data.room_id,
+              participants: [{
                 user_id: data.agent_id,
-                joined_at: data.assigned_at,
+                name: data.agent_name,
+                role: 'agent',
               }],
               last_message: undefined,
               last_message_at: data.room.created_at,
@@ -424,23 +425,24 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           });
         }
       } else {
-        // Not this agent, just update assigned_agents and is_assigned for admin/supervisor view
+        // Not this agent, just update participants and is_assigned for admin/supervisor view
         setRooms(prev => prev.map(room => {
-          if (room.id === data.room_id) {
-            const assignedAgents = room.assigned_agents || [];
-            const agentExists = assignedAgents.some(a => a.user_id === data.agent_id);
+          if (room.room_id === data.room_id) {
+            const participants = room.participants || [];
+            const agentExists = participants.some(p => p.user_id === data.agent_id);
             
             if (!agentExists) {
-              const newAgent = {
-                room_id: data.room_id,
-                user_id: data.agent_id,
-                joined_at: data.assigned_at,
-              };
               return {
                 ...room,
                 is_assigned: true,
-                assigned_count: (room.assigned_count || 0) + 1,
-                assigned_agents: [...assignedAgents, newAgent],
+                participants: [
+                  ...participants,
+                  {
+                    user_id: data.agent_id,
+                    name: data.agent_name,
+                    role: 'agent',
+                  }
+                ],
               };
             }
             // Agent already exists, just update is_assigned
@@ -471,7 +473,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       if (userRole === 'agent' && data.agent_id === userId) {
         console.log('🚫 This agent was unassigned! Removing room from list...');
         
-        setRooms(prev => prev.filter(room => room.id !== data.room_id));
+        setRooms(prev => prev.filter(room => room.room_id !== data.room_id));
         
         // Show notification
         if (typeof window !== 'undefined' && Notification.permission === 'granted') {
@@ -482,15 +484,14 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           });
         }
       } else {
-        // Not this agent, just update assigned_agents and is_assigned for admin/supervisor view
+        // Not this agent, just update participants and is_assigned for admin/supervisor view
         setRooms(prev => prev.map(room => {
-          if (room.id === data.room_id) {
-            const updatedAgents = (room.assigned_agents || []).filter(a => a.user_id !== data.agent_id);
+          if (room.room_id === data.room_id) {
+            const updatedParticipants = (room.participants || []).filter(p => p.user_id !== data.agent_id);
             return {
               ...room,
-              is_assigned: updatedAgents.length > 0,
-              assigned_count: updatedAgents.length,
-              assigned_agents: updatedAgents,
+              is_assigned: updatedParticipants.length > 0,
+              participants: updatedParticipants,
             };
           }
           return room;
@@ -500,7 +501,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
 
     // Cleanup
     return () => {
-      socket.off('new_room');
+      socket.off('new_room_complete');
       socket.off('new_message');
       socket.off('agent_assigned');
       socket.off('agent_unassigned');
@@ -510,7 +511,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
   // Reset unread count for a room
   const markRoomAsRead = useCallback((roomId: string) => {
     setRooms(prev => prev.map(room => 
-      room.id === roomId 
+      room.room_id === roomId 
         ? { ...room, unread_count: 0 }
         : room
     ));

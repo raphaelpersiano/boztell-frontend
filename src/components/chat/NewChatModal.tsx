@@ -17,7 +17,7 @@ interface Template {
 interface NewChatModalProps {
   isOpen: boolean;
   onClose: () => void;
-  onSuccess: (roomId: string) => void;
+  onSuccess: (roomId: string, phoneNumber?: string) => void;
   userId: string;
   prefilledPhone?: string; // Optional: Pre-fill phone number for existing rooms
   currentRoomId?: string; // Optional: Current room ID for updating existing room
@@ -180,18 +180,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
       // Backend returns: { success, database_saved: { room_id, message_id, whatsapp_message_id } }
       const roomId = response.database_saved?.room_id || currentRoomId;
       
-      if (roomId) {
-        console.log('🎯 Room ID received:', roomId);
-        // Auto-select the room
-        onSuccess(roomId);
-      } else {
-        console.log('ℹ️ No room ID, room will appear via realtime');
-        // Fallback: room will appear in list via realtime subscription
-        onSuccess('');
-      }
+      // Pass both room_id AND phone number to parent
+      // This allows parent to find room by phone if room_id fails
+      console.log('🎯 Passing to parent:', { roomId, phoneNumber });
+      onSuccess(roomId || '', phoneNumber);
       
       // Note: 
-      // - For NEW room: Room will be added via 'new_room' socket event
+      // - For NEW room: Room will be added via 'new_room_complete' socket event
       // - For EXISTING room: Room will be updated via 'new_message' socket event
       // - Both events trigger automatic UI update in useRealtimeRooms hook
       // - The parent component also calls refetchRooms() for additional sync
