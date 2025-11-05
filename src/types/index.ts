@@ -24,9 +24,15 @@ export interface Room {
   last_message?: Message | string; // Can be Message object or string
   last_message_at?: string; // Timestamp of last message
   unread_count?: number;
-  assigned_agents?: RoomParticipant[]; // Array of assigned agents
-  assigned_count?: number; // Count of assigned agents
+  assigned_agents?: RoomParticipant[]; // Array of assigned agents (deprecated)
+  assigned_count?: number; // Count of assigned agents (deprecated)
   is_assigned?: boolean; // Backend field: true if room has assigned agents
+  participant_count?: number; // Backend field: count of participants (agents) in room
+  participants?: Array<{
+    user_id: string;
+    name?: string;
+    role?: string;
+  }>; // NEW: Array of participants (agents) with user info
 }
 
 export interface RoomParticipant {

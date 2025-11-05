@@ -86,6 +86,11 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
         localStorage.setItem('currentUser', JSON.stringify(userData));
         console.log('🔐 Saved to localStorage:', JSON.stringify(userData));
         
+        // ✅ IMPORTANT: Give backend time to sync user data across microservices
+        // This prevents "Get user by ID failed" error when fetching rooms immediately
+        console.log('⏳ Waiting 500ms for backend to sync user data...');
+        await new Promise(resolve => setTimeout(resolve, 500));
+        
         console.log('🔍 Token analysis:', {
           hasTokenInResponse: !!response.token,
           tokenType: typeof response.token,
@@ -106,7 +111,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
             tokenPreview: possibleToken.substring(0, 20) + '...'
           });
         } else {
-          console.error('⚠️ NO TOKEN FOUND in login response!', {
+          console.warn('⚠️ NO TOKEN FOUND in login response!', {
             responseKeys: Object.keys(response || {}),
             fullResponse: response
           });

@@ -29,6 +29,8 @@ export interface Room {
   last_message_at?: string;
   unread_count?: number;
   is_assigned?: boolean; // Backend field: true if room has assigned agents
+  participant_count?: number; // Backend field: count of participants in room
+  participant_joined_at?: string; // Backend field: when user joined room
 }
 
 interface UseRealtimeRoomsProps {
@@ -40,37 +42,49 @@ interface UseRealtimeRoomsProps {
 
 export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseRealtimeRoomsProps) {
   const [rooms, setRooms] = useState<Room[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(true); // Start with true, waiting for userId
   const [error, setError] = useState<string | null>(null);
 
-  // ✅ Fetch all rooms from REST API
-  const fetchRooms = useCallback(async () => {
+  // ✅ Fetch all rooms from REST API with retry logic
+  const fetchRooms = useCallback(async (retryCount = 0) => {
+    // Early return if userId not ready (avoid unnecessary API call)
+    if (!userId || !userRole) {
+      console.log('⏸️ fetchRooms called but userId/userRole not ready yet, skipping...');
+      setLoading(true); // Keep showing loading state
+      return;
+    }
+    
+    const MAX_RETRIES = 2;
+    const RETRY_DELAY = 1500; // 1.5 seconds between retries
+    
     try {
       setLoading(true);
       setError(null);
+      
+      if (retryCount > 0) {
+        console.log(`🔄 Retry attempt ${retryCount}/${MAX_RETRIES}...`);
+      }
       
       console.log('📚 Fetching room list...', { 
         userId, 
         userRole,
         hasUserId: !!userId,
-        willFilter: userRole === 'agent' && !!userId
+        willFilter: userRole === 'agent' && !!userId,
+        retryCount
       });
       
-      // Build URL with query params for agent filtering
+      // Build URL with query params - ALWAYS include user_id
+      // Backend will handle role-based filtering (admin gets all, agent gets assigned only)
       const baseUrl = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8080';
-      let url = `${baseUrl}/rooms`;
       
-      // For agents, add user_id to filter their assigned rooms
-      // Admin/Supervisor: GET /rooms (all rooms)
-      // Agent: GET /rooms?user_id=<agent_uuid> (only assigned rooms)
-      if (userRole === 'agent' && userId) {
-        url += `?user_id=${userId}`;
-        console.log('🔍 Agent mode: Filtering rooms by user_id');
-      } else {
-        console.log('👥 Admin/Supervisor mode: Fetching all rooms');
-      }
+      const url = `${baseUrl}/rooms?user_id=${userId}`;
       
-      console.log('📡 Fetching from:', url);
+      console.log('� Fetching rooms with user_id:', {
+        userId,
+        userRole,
+        url,
+        note: 'Backend will filter based on role'
+      });
       
       const response = await fetch(url);
       
@@ -78,11 +92,34 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       
       if (!response.ok) {
         const errorText = await response.text();
-        console.error('❌ Backend error response:', {
-          status: response.status,
-          statusText: response.statusText,
-          body: errorText
-        });
+        
+        // Only log as error if it's the final attempt
+        if (retryCount >= MAX_RETRIES || response.status !== 500) {
+          console.error('❌ Backend error response:', {
+            status: response.status,
+            statusText: response.statusText,
+            body: errorText,
+            retryCount,
+            willRetry: response.status === 500 && retryCount < MAX_RETRIES
+          });
+        } else {
+          console.warn('⚠️ Backend error, will retry:', {
+            status: response.status,
+            retryCount,
+            nextRetryIn: `${RETRY_DELAY * (retryCount + 1)}ms`
+          });
+        }
+        
+        // ✅ RETRY LOGIC: If 500 error and not max retries, try again
+        if (response.status === 500 && retryCount < MAX_RETRIES) {
+          console.log(`⏳ Backend error 500 - Will retry in ${RETRY_DELAY}ms (attempt ${retryCount + 1}/${MAX_RETRIES})`);
+          
+          // Wait before retry (exponential backoff)
+          await new Promise(resolve => setTimeout(resolve, RETRY_DELAY * (retryCount + 1)));
+          
+          // Recursive retry
+          return fetchRooms(retryCount + 1);
+        }
         
         throw new Error(
           `Backend Error ${response.status}: ${response.statusText}\n\n` +
@@ -131,17 +168,38 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
       }
     } catch (error) {
       console.error('❌ Failed to fetch rooms:', error);
-      setError(error instanceof Error ? error.message : 'Failed to load rooms');
+      
+      // More user-friendly error message
+      let errorMessage = 'Failed to load rooms';
+      if (error instanceof Error) {
+        errorMessage = error.message;
+        
+        // Add helpful hint for 500 errors after retries
+        if (error.message.includes('500') && retryCount >= MAX_RETRIES) {
+          errorMessage += '\n\n💡 Tip: Backend may need more time to sync. Please try again in a few seconds.';
+        }
+      }
+      
+      setError(errorMessage);
       setRooms([]);
     } finally {
       setLoading(false);
     }
   }, [userId, userRole]);
 
-  // Load rooms on mount
+  // Load rooms when userId becomes available (after login or from localStorage)
   useEffect(() => {
+    if (!userId || !userRole) {
+      console.log('⏳ Waiting for userId and userRole...', { userId, userRole });
+      setLoading(true); // Keep loading until userId is ready
+      setError(null);
+      return;
+    }
+    
+    console.log('✅ userId and userRole ready, fetching rooms...', { userId, userRole });
     fetchRooms();
-  }, [fetchRooms]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [userId, userRole]); // Trigger when userId/userRole changes (after login)
 
   // ✅ Socket.IO for real-time room updates
   useEffect(() => {
@@ -203,14 +261,10 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         currentUserRole: userRole,
       });
       
-      // ✅ BEST PRACTICE: Hybrid approach
-      // - Admin/Supervisor: Show semua new rooms (biar bisa assign)
-      // - Agent: SKIP dulu, tunggu agent_assigned event atau refetch
-      if (userRole === 'agent') {
-        console.log('ℹ️ Agent mode: Room tidak otomatis ditambah (tunggu assignment)');
-        console.log('💡 Hint: Supervisor harus assign agent ke room ini dulu');
-        return; // SKIP - Agent akan dapat room via refetch atau agent_assigned event
-      }
+      // ✅ NEW LOGIC: Backend already filters events by user role
+      // If agent receives this event, it means they are assigned to this room
+      // No need to check userRole here - trust backend filtering
+      console.log('✅ Received new_room_complete event (backend already filtered by role)');
       
       // ✅ Transform to Room format (data already complete from backend!)
       const roomData: Room = {
@@ -342,11 +396,12 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         isCurrentUser: data.agent_id === userId,
       });
       
-      // ✅ If THIS agent was assigned, add room to their list
-      if (userRole === 'agent' && data.agent_id === userId) {
-        console.log('🎯 This agent was assigned! Adding room to list...');
-        
-        setRooms(prev => {
+      // ✅ NEW LOGIC: Backend already filters who receives this event
+      // If user receives this event, it means they should see this room update
+      // Update room participants regardless of role
+      console.log('🔄 Updating room participants after agent assignment');
+      
+      setRooms(prev => {
           // Check if room already exists
           const exists = prev.some(r => r.room_id === data.room_id);
           
@@ -416,48 +471,18 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
           return prev;
         });
         
-        // Show notification for agent
-        if (typeof window !== 'undefined' && Notification.permission === 'granted') {
+        // Show notification if this user was assigned
+        if (data.agent_id === userId && typeof window !== 'undefined' && Notification.permission === 'granted') {
           new Notification('🎯 New Assignment', {
             body: `You've been assigned to chat with ${data.room?.title || data.room?.phone || 'customer'}`,
             icon: '/logo.png',
             tag: data.room_id,
           });
         }
-      } else {
-        // Not this agent, just update participants and is_assigned for admin/supervisor view
-        setRooms(prev => prev.map(room => {
-          if (room.room_id === data.room_id) {
-            const participants = room.participants || [];
-            const agentExists = participants.some(p => p.user_id === data.agent_id);
-            
-            if (!agentExists) {
-              return {
-                ...room,
-                is_assigned: true,
-                participants: [
-                  ...participants,
-                  {
-                    user_id: data.agent_id,
-                    name: data.agent_name,
-                    role: 'agent',
-                  }
-                ],
-              };
-            }
-            // Agent already exists, just update is_assigned
-            return {
-              ...room,
-              is_assigned: true,
-            };
-          }
-          return room;
-        }));
-      }
     });
 
     // ✅ AGENT UNASSIGNMENT EVENT
-    // When agent unassigned from room, remove room from their list (agents only)
+    // Backend already filters who receives this event based on role
     socket.on('agent_unassigned', (data: {
       room_id: string;
       agent_id: string;
@@ -469,9 +494,9 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
         isCurrentUser: data.agent_id === userId,
       });
       
-      // ✅ If THIS agent was unassigned, remove room from their list
-      if (userRole === 'agent' && data.agent_id === userId) {
-        console.log('🚫 This agent was unassigned! Removing room from list...');
+      // ✅ If THIS user was unassigned, remove room from their list
+      if (data.agent_id === userId) {
+        console.log('🚫 This user was unassigned! Removing room from list...');
         
         setRooms(prev => prev.filter(room => room.room_id !== data.room_id));
         
@@ -521,7 +546,7 @@ export function useRealtimeRooms({ socket, isConnected, userId, userRole }: UseR
     rooms,
     loading,
     error,
-    refetch: fetchRooms,
+    refetch: () => fetchRooms(0), // Reset retry count when manually refetching
     markRoomAsRead,
   };
 }

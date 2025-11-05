@@ -38,11 +38,10 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
   const [loadingAgents, setLoadingAgents] = React.useState(false);
   const [loadingAssigned, setLoadingAssigned] = React.useState(false);
 
-  // Can edit (assign/unassign) - only supervisors/admins
-  const canEdit = user?.role === 'admin' || user?.role === 'supervisor';
-  
-  // Can view - all roles (agent can view but not edit)
-  const canView = true;
+  // Show to all roles (admin, supervisor, agent)
+  // But agents get view-only mode (can't assign/unassign)
+  const canManageAssignments = user?.role === 'admin' || user?.role === 'supervisor';
+  const canViewAssignments = user?.role === 'agent' || canManageAssignments;
 
   // Load all agents
   const loadAgents = async () => {
@@ -215,6 +214,11 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
      agent.email.toLowerCase().includes(searchTerm.toLowerCase()))
   );
 
+  // Don't show button if user can't even view
+  if (!canViewAssignments) {
+    return null;
+  }
+
   return (
     <>
       <div className="relative">
@@ -223,7 +227,7 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
           size="sm"
           onClick={openModal}
           className="flex items-center space-x-1 text-gray-600 hover:text-gray-700"
-          title="Manage room assignments"
+          title={canManageAssignments ? "Manage room assignments" : "View room assignments"}
         >
           <Users className="h-4 w-4" />
           <span className="text-sm">Manage Access</span>
@@ -249,14 +253,9 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
           >
             {/* Header */}
             <div className="flex items-center justify-between p-4 border-b">
-              <div>
-                <h3 className="text-lg font-semibold text-gray-900">
-                  {canEdit ? 'Manage Room Access' : 'View Room Access'}
-                </h3>
-                {!canEdit && (
-                  <p className="text-xs text-gray-500 mt-1">View only - Contact supervisor to make changes</p>
-                )}
-              </div>
+              <h3 className="text-lg font-semibold text-gray-900">
+                {canManageAssignments ? 'Manage Room Access' : 'View Room Access'}
+              </h3>
               <button
                 onClick={closeModal}
                 className="text-gray-400 hover:text-gray-600"
@@ -290,7 +289,8 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
                             <div className="text-xs text-gray-500">{agent.email}</div>
                           </div>
                         </div>
-                        {canEdit && (
+                        {/* Only show delete button for admin/supervisor */}
+                        {canManageAssignments && (
                           <button
                             onClick={() => handleUnassignAgent(agent.id)}
                             disabled={loading}
@@ -307,7 +307,7 @@ export const QuickRoomAssignment: React.FC<QuickRoomAssignmentProps> = ({
               </div>
 
               {/* Add Agent Section - Only show for admin/supervisor */}
-              {canEdit && (
+              {canManageAssignments && (
                 <div>
                   <h4 className="text-sm font-medium text-gray-700 mb-3">
                     Add Agent

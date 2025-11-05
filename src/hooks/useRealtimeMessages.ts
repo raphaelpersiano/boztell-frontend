@@ -21,7 +21,13 @@ export function useRealtimeMessages({ socket, roomId, isConnected }: UseRealtime
 
   // ✅ STEP 1: Fetch historical messages from REST API (CRITICAL!)
   useEffect(() => {
-    if (!roomId) return;
+    // Guard: Only fetch if roomId is valid
+    if (!roomId || typeof roomId !== 'string' || roomId.trim() === '') {
+      console.log('⏸️ Skipping message fetch - roomId not ready:', roomId);
+      setLoading(true); // Keep loading until roomId is valid
+      setMessages([]); // Clear messages
+      return;
+    }
 
     const fetchHistoricalMessages = async () => {
       try {
@@ -33,7 +39,11 @@ export function useRealtimeMessages({ socket, roomId, isConnected }: UseRealtime
         );
         
         if (!response.ok) {
-          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+          // Don't throw error, just log and set empty messages
+          console.warn(`⚠️ Failed to fetch messages (HTTP ${response.status}), will retry on next room change`);
+          setMessages([]);
+          setLoading(false);
+          return; // Early return, don't throw
         }
         
         const data = await response.json();

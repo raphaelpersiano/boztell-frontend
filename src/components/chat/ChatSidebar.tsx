@@ -32,7 +32,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
   // Filter rooms based on search and tab
   const filteredRooms = rooms
     .filter(room => {
-      const customerName = room.lead?.name || room.title || 'Unknown';
+      const customerName = room.title || room.lead?.name || `Customer ${room.phone?.slice(-4)}` || 'Unknown';
       const customerPhone = room.phone || '';
       
       const matchesSearch = customerName.toLowerCase().includes(searchQuery.toLowerCase()) ||
@@ -202,7 +202,7 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
         ) : (
           <>
             {filteredRooms.map((room) => {
-              const customerName = room.lead?.name || room.title || 'Unknown';
+              const customerName = room.title || room.lead?.name || `Customer ${room.phone?.slice(-4)}` || 'Unknown';
               const customerPhone = room.phone || '';
               const lastMessageText = formatLastMessage(room);
               // Use last_message_at if available, fallback to updated_at, then created_at
@@ -210,9 +210,10 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
               const unreadCount = room.unread_count || 0;
               
               // Use backend's is_assigned field (more reliable)
-              // Fallback to checking assigned_count if is_assigned not provided
-              const isAssigned = room.is_assigned ?? ((room.assigned_count ?? room.assigned_agents?.length ?? 0) > 0);
-              const assignedCount = room.assigned_count ?? room.assigned_agents?.length ?? 0;
+              // For count: try participant_count first, fallback to assigned_count/assigned_agents
+              const participantsCount = room.participant_count ?? room.assigned_count ?? room.assigned_agents?.length ?? 0;
+              const isAssigned = room.is_assigned ?? (participantsCount > 0);
+              const assignedCount = participantsCount;
               const leadStatus = room.lead?.leads_status || 'cold';
             
               return (
@@ -254,19 +255,21 @@ export const ChatSidebar: React.FC<ChatSidebarProps> = ({
                         </div>
                       </div>
 
-                      {/* Assignment info */}
+                      {/* Assignment info - HANYA untuk admin/supervisor */}
                       <div className="flex items-center justify-between mt-2">
-                        <div className="flex items-center space-x-2">
-                          {isAssigned ? (
-                            <Badge variant="success" size="sm">
-                              Assigned ({assignedCount})
-                            </Badge>
-                          ) : (
-                            <Badge variant="warning" size="sm">
-                              Unassigned
-                            </Badge>
-                          )}
-                        </div>
+                        {(userRole === 'admin' || userRole === 'supervisor') && (
+                          <div className="flex items-center space-x-2">
+                            {assignedCount > 0 ? (
+                              <Badge variant="success" size="sm">
+                                Assigned ({assignedCount})
+                              </Badge>
+                            ) : (
+                              <Badge variant="warning" size="sm">
+                                Unassigned
+                              </Badge>
+                            )}
+                          </div>
+                        )}
                         <Badge variant="default" size="sm">
                           {leadStatus}
                         </Badge>
