@@ -141,25 +141,26 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
 
     setSending(true);
 
+    // Build request data - user_id is required, room_id is optional
+    const requestData: any = {
+      to: phoneNumber.trim(),
+      templateName: selectedTemplate.name,
+      languageCode: selectedTemplate.language || 'en',
+      user_id: userId, // REQUIRED: agent/admin who sends the template
+    };
+
+    // Add parameters only if present
+    if (paramValues.length > 0) {
+      requestData.parameters = paramValues;
+    }
+
+    // Add room_id only if exists (for existing customers)
+    // For new customers, don't include room_id at all (backend will create new room)
+    if (currentRoomId) {
+      requestData.room_id = currentRoomId;
+    }
+
     try {
-      // Build request data - user_id is required, room_id is optional
-      const requestData: any = {
-        to: phoneNumber.trim(),
-        templateName: selectedTemplate.name,
-        languageCode: selectedTemplate.language || 'en',
-        user_id: userId, // REQUIRED: agent/admin who sends the template
-      };
-
-      // Add parameters only if present
-      if (paramValues.length > 0) {
-        requestData.parameters = paramValues;
-      }
-
-      // Add room_id only if exists (for existing customers)
-      // For new customers, don't include room_id at all (backend will create new room)
-      if (currentRoomId) {
-        requestData.room_id = currentRoomId;
-      }
 
       console.log('📤 Sending template message...', {
         to: requestData.to,
@@ -169,6 +170,7 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
         hasRoomId: !!currentRoomId,
         isNewCustomer: !currentRoomId,
         userId: userId,
+        fullRequestData: requestData
       });
       
       // Send template message via API
@@ -191,7 +193,13 @@ export const NewChatModal: React.FC<NewChatModalProps> = ({
       // - Both events trigger automatic UI update in useRealtimeRooms hook
       // - The parent component also calls refetchRooms() for additional sync
     } catch (error: any) {
-      console.error('❌ Error sending template:', error);
+      console.error('❌ Error sending template:', {
+        error,
+        errorMessage: error.message,
+        errorStack: error.stack,
+        userId: userId,
+        requestData
+      });
       
       if (error.message?.includes('fetch') || error.message?.includes('network') || error.message?.includes('connect')) {
         alert('Cannot send template: Backend API is not running. Please start the Express.js backend server at localhost:8080');
